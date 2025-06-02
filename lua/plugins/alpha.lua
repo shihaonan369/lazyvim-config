@@ -11,7 +11,7 @@ return {
           .. vim.fn.stdpath("config")
           .. '/assets/logo.gif"',
         width = 80,
-        height = 21,
+        height = 20,
         opts = {
           position = "center",
           redraw = true,
@@ -19,6 +19,7 @@ return {
         },
       }
 
+      opts.opts.layout[1].val = 2
       opts.opts.layout[2] = dynamic_header
 
       vim.defer_fn(function()
