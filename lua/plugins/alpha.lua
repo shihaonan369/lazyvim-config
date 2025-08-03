@@ -4,13 +4,13 @@ return {
     opts = function(_, opts)
       require("alpha")
       require("alpha.term")
+      local play_ascii_frames = vim.fn.stdpath("config") .. "/scripts/play_ascii_frames.sh"
+      local ascii_logo_frames = vim.fn.stdpath("config") .. "/assets/ascii_logo_frames"
       opts.opts.opts.noautocmd = true
       local dynamic_header = {
         type = "terminal",
-        command = 'chafa -c full --clear --fg-only --symbols braille --size=80x20 "'
-          .. vim.fn.stdpath("config")
-          .. '/assets/logo.gif"',
-        width = 80,
+        command = "chmod +x " .. play_ascii_frames .. " && " .. play_ascii_frames .. " " .. ascii_logo_frames .. " 60",
+        width = 40,
         height = 20,
         opts = {
           position = "center",
