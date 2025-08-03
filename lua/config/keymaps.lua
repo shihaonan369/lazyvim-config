@@ -4,5 +4,3 @@
 local map = vim.keymap.set
 map({ "i", "v" }, "jk", "<esc>", { desc = "esc", silent = true })
 map({ "i", "v" }, "kj", "<esc>", { desc = "esc", silent = true })
-map("i", "<C-c>", "", { noremap = true, silent = true })
-map("i", "<C-v>", "", { noremap = true, silent = true })
