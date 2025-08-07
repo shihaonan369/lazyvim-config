@@ -4,3 +4,5 @@
 local map = vim.keymap.set
 map({ "i", "v" }, "jk", "<esc>", { desc = "esc", silent = true })
 map({ "i", "v" }, "kj", "<esc>", { desc = "esc", silent = true })
+map({ "t" }, "jk", [[<C-\><C-n>]], { desc = "esc", silent = true })
+map({ "t" }, "kj", [[<C-\><C-n>]], { desc = "esc", silent = true })
