@@ -29,11 +29,13 @@ return {
           settings = {
             python = {
               pythonPath = get_poetry_python_path(),
+              analysis = {
+                typeCheckingMode = "off",
+              },
             },
           },
         },
       },
     },
-    dependencies = { "folke/noice.nvim" },
   },
 }
