@@ -9,11 +9,13 @@ local function ensure_chafa_and_redraw(callback)
 
   local uname = vim.uv.os_uname().sysname
   local cmd
+  local is_windows = false
 
   if uname == "Darwin" then
     cmd = { "brew", "install", "chafa" }
   elseif uname == "Windows_NT" then
-    cmd = { "winget", "install", "--id", "hpjansson.chafa", "-e" }
+    cmd = { "winget", "install", "chafa" }
+    is_windows = true
   else
     vim.notify("Unsupported OS. Please install chafa manually.", vim.log.levels.ERROR)
     callback(false)
@@ -22,13 +24,20 @@ local function ensure_chafa_and_redraw(callback)
 
   -- Async installation
   vim.system(cmd, { text = true }, function(result)
-    if result.code == 0 then
-      vim.notify("chafa installed successfully.", vim.log.levels.INFO)
-      callback(true)
-    else
-      vim.notify("Failed to install chafa:\n" .. result.stderr, vim.log.levels.ERROR)
-      callback(false)
-    end
+    vim.schedule(function()
+      if result.code == 0 then
+        vim.notify("chafa installed successfully.", vim.log.levels.INFO)
+        if is_windows then
+          vim.notify("On Windows, you need to restart your terminal for chafa to take effect.", vim.log.levels.WARN)
+          callback(false) -- we do not redraw immediately
+        else
+          callback(true)
+        end
+      else
+        vim.notify("Failed to install chafa:\n" .. result.stderr, vim.log.levels.ERROR)
+        callback(false)
+      end
+    end)
   end)
 end
 
@@ -61,7 +70,7 @@ return {
         opts.opts.layout[1].val = 2
         opts.opts.layout[2] = dynamic_header
 
-        -- If chafa was installed, force redraw
+        -- Only redraw automatically on non-Windows systems
         if ok then
           vim.defer_fn(function()
             vim.cmd("AlphaRedraw")
