@@ -1,6 +1,8 @@
 return {
   {
     "folke/tokyonight.nvim",
+    lazy = false,
+    priority = 1000,
     opts = {
       style = "night",
     },
@@ -15,6 +17,8 @@ return {
   },
   {
     "catppuccin/nvim",
+    lazy = false,
+    priority = 1000,
     opts = {
       transparent_background = true,
       float = {
