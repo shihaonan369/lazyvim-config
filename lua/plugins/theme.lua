@@ -5,6 +5,11 @@ return {
     priority = 1000,
     opts = {
       style = "night",
+      transparent = true,
+      styles = {
+        sidebars = "transparent",
+        floats = "transparent",
+      },
     },
   },
   {
@@ -39,12 +44,11 @@ return {
       end
 
       local theme_map = {
-        retro = "cyberdream",
+        retro = "tokyonight",
         paper = "catppuccin",
       }
 
-      -- 默认使用 catppuccin
-      local chosen_theme = theme_map[term_theme] or "catppuccin"
+      local chosen_theme = theme_map[term_theme] or "tokyonight"
 
       return {
         colorscheme = chosen_theme,
