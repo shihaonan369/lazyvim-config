@@ -61,16 +61,6 @@ return {
       return op.operator("@this ") .. "_"
     end, { expr = true, desc = "Opencode Add Line" })
 
-    -- scroll up
-    vim.keymap.set("n", "<S-C-u>", function()
-      op.command("session.half.page.up")
-    end, { desc = "Opencode Scroll Up" })
-
-    -- scroll down
-    vim.keymap.set("n", "<S-C-d>", function()
-      op.command("session.half.page.down")
-    end, { desc = "Opencode Scroll Down" })
-
     vim.keymap.set("n", "+", "<C-a>", { noremap = true, desc = "Increment number" })
     vim.keymap.set("n", "-", "<C-x>", { noremap = true, desc = "Decrement number" })
   end,
