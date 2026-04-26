@@ -12,28 +12,44 @@ map({ "n" }, "<C-M-h>", "<C-w><", { desc = "Decrease Window Width", silent = tru
 map({ "n" }, "<C-M-l>", "<C-w>>", { desc = "Increase Window Width", silent = true })
 
 local next_terminal_count = 1
+local my_terminals = {}
 
 local function new_shell_terminal(shell)
-  Snacks.terminal({ shell }, {
+  local terminal = Snacks.terminal({ shell }, {
     cwd = LazyVim.root(),
     count = next_terminal_count,
     win = { position = "bottom" },
   })
   next_terminal_count = next_terminal_count + 1
+  table.insert(my_terminals, terminal)
 end
 
 local function toggle_all_terminals()
-  local terminals = Snacks.terminal.list()
-  if #terminals == 0 then
+  if #my_terminals == 0 then
     new_shell_terminal(vim.o.shell)
     return
   end
 
-  local has_visible = vim.iter(terminals):any(function(terminal)
-    return terminal:valid()
+  -- 清理已失效的终端（通过检查缓冲区是否有效）
+  local valid_terminals = {}
+  for _, terminal in ipairs(my_terminals) do
+    if terminal.buf and vim.api.nvim_buf_is_valid(terminal.buf) then
+      table.insert(valid_terminals, terminal)
+    end
+  end
+  my_terminals = valid_terminals
+
+  if #my_terminals == 0 then
+    new_shell_terminal(vim.o.shell)
+    return
+  end
+
+  -- 检查是否有可见的终端
+  local has_visible = vim.iter(my_terminals):any(function(terminal)
+    return terminal.win and vim.api.nvim_win_is_valid(terminal.win)
   end)
 
-  for _, terminal in ipairs(terminals) do
+  for _, terminal in ipairs(my_terminals) do
     if has_visible then
       terminal:hide()
     else
