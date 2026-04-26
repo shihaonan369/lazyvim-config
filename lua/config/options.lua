@@ -33,3 +33,7 @@ if vim.env.SSH_CONNECTION or vim.env.DOCKER_EXEC then
   vim.api.nvim_set_keymap("v", "p", '"+p', opts)
   vim.api.nvim_set_keymap("v", "P", '"+P', opts)
 end
+
+-- AI 助手选择: "opencode" 或 "claude"
+-- 修改这个值来切换 AI 助手，然后重启 Neovim
+vim.g.ai_assistant = "claude"
