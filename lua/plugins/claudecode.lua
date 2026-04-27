@@ -12,6 +12,9 @@ return {
       split_side = "right",
       split_width_percentage = 0.30,
     },
+    diff_opts = {
+      keep_terminal_focus = true,
+    },
   },
   keys = {
     { "<C-a>", "<cmd>ClaudeCode<cr>", desc = "Toggle", mode = { "n", "t" } },
