@@ -6,10 +6,6 @@ map({ "i", "v" }, "jk", "<esc>", { desc = "esc", silent = true })
 map({ "i", "v" }, "kj", "<esc>", { desc = "esc", silent = true })
 map({ "t" }, "jk", [[<C-\><C-n>]], { desc = "esc", silent = true })
 map({ "t" }, "kj", [[<C-\><C-n>]], { desc = "esc", silent = true })
-map({ "n" }, "<C-M-j>", "<C-w>-", { desc = "Decrease Window Height", silent = true })
-map({ "n" }, "<C-M-k>", "<C-w>+", { desc = "Increase Window Height", silent = true })
-map({ "n" }, "<C-M-h>", "<C-w><", { desc = "Decrease Window Width", silent = true })
-map({ "n" }, "<C-M-l>", "<C-w>>", { desc = "Increase Window Width", silent = true })
 
 local next_terminal_count = 1
 local my_terminals = {}
