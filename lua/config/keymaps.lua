@@ -79,14 +79,6 @@ for _, lhs in ipairs({ "<C-/>", "<C-_>" }) do
   map("t", lhs, toggle_all_terminals_from_terminal, { desc = "Toggle All Terminals", silent = true })
 end
 
-map("n", "<leader>tz", function()
+map("n", "<leader>zz", function()
   new_shell_terminal("zsh")
 end, { desc = "New zsh Terminal", silent = true })
-
-map("n", "<leader>tb", function()
-  new_shell_terminal("bash")
-end, { desc = "New bash Terminal", silent = true })
-
-map("n", "<leader>tt", function()
-  new_shell_terminal(vim.o.shell)
-end, { desc = "New Terminal", silent = true })
