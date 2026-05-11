@@ -1,3 +1,21 @@
+local function send_and_focus(cmd)
+  vim.cmd(cmd)
+  vim.schedule(function()
+    vim.cmd("ClaudeCodeFocus")
+    vim.schedule(function()
+      vim.cmd("startinsert")
+    end)
+  end)
+end
+
+local function send_range_and_focus()
+  local line1 = vim.fn.line("'<")
+  local line2 = vim.fn.line("'>")
+  if line1 > 0 and line2 > 0 then
+    send_and_focus(line1 .. "," .. line2 .. "ClaudeCodeSend")
+  end
+end
+
 return {
   "coder/claudecode.nvim",
   enabled = function()
@@ -22,23 +40,21 @@ return {
     { "<leader>aC", "<cmd>ClaudeCode --continue<cr>", desc = "Continue Claude" },
     { "<leader>aR", "<cmd>ClaudeCode --resume<cr>", desc = "Resume Claude" },
     { "<leader>aM", "<cmd>ClaudeCodeSelectModel<cr>", desc = "Select Model" },
-    { "<leader>ab", "<cmd>ClaudeCodeAdd %<cr>", desc = "Add Buffer" },
     {
-      "<leader>al",
-      ":.ClaudeCodeSend<CR>",
-      desc = "Add Line",
-    },
-    {
-      "<leader>ar",
-      ":'<,'>ClaudeCodeSend<CR>",
-      mode = "v",
-      desc = "Add Range",
-    },
-    {
-      "<leader>af",
-      "<cmd>ClaudeCodeTreeAdd<cr>",
-      desc = "Add file",
-      ft = { "NvimTree", "neo-tree", "oil", "minifiles", "netrw" },
+      "<leader>as",
+      function()
+        local ft = vim.bo.filetype
+        local tree_types = { NvimTree = true, ["neo-tree"] = true, oil = true, minifiles = true, netrw = true }
+        if tree_types[ft] then
+          send_and_focus("ClaudeCodeTreeAdd")
+        elseif vim.fn.mode() == "v" or vim.fn.mode() == "V" or vim.fn.mode() == "\22" then
+          send_range_and_focus()
+        else
+          send_and_focus("ClaudeCodeAdd %")
+        end
+      end,
+      mode = { "n", "v" },
+      desc = "Smart Add",
     },
     { "<leader>ada", "<cmd>ClaudeCodeDiffAccept<cr>", desc = "Accept Diff" },
     { "<leader>add", "<cmd>ClaudeCodeDiffDeny<cr>", desc = "Deny Diff" },
