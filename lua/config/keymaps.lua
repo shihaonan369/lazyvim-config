@@ -82,3 +82,11 @@ end
 map("n", "<leader>zz", function()
   new_shell_terminal("zsh")
 end, { desc = "New zsh Terminal", silent = true })
+
+for i = 1, 4 do
+  map("n", "<leader>z" .. i, function()
+    for _ = 1, i do
+      new_shell_terminal("zsh")
+    end
+  end, { desc = "New " .. i .. " zsh Terminals", silent = true })
+end
