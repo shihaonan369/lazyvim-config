@@ -11,6 +11,25 @@ local next_terminal_count = 1
 local my_terminals = {}
 
 local function new_shell_terminal(shell)
+  -- 清理已失效的终端
+  local valid_terminals = {}
+  for _, terminal in ipairs(my_terminals) do
+    if terminal.buf and vim.api.nvim_buf_is_valid(terminal.buf) then
+      table.insert(valid_terminals, terminal)
+    end
+  end
+  my_terminals = valid_terminals
+
+  -- 先显示所有已隐藏的终端，确保布局一致
+  for _, terminal in ipairs(my_terminals) do
+    if not terminal.win or not vim.api.nvim_win_is_valid(terminal.win) then
+      local enter = terminal.opts.enter
+      terminal.opts.enter = false
+      terminal:show()
+      terminal.opts.enter = enter
+    end
+  end
+
   local terminal = Snacks.terminal({ shell }, {
     cwd = LazyVim.root(),
     count = next_terminal_count,
