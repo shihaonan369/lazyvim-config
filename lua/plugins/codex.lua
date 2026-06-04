@@ -15,7 +15,6 @@ local function codex_term(args)
       vim.cmd("startinsert")
       return
     end
-    -- buffer exists but window closed, delete it and reopen
     vim.api.nvim_buf_delete(buf, { force = true })
   end
 
@@ -63,8 +62,8 @@ local function send_and_focus(cmd)
 end
 
 return {
-  "util/codex.nodata", -- virtual plugin, no actual download
-  lazy = true,
+  dir = vim.fn.stdpath("config"),
+  name = "codex-config",
   enabled = function()
     return vim.g.ai_assistant == "codex"
   end,
