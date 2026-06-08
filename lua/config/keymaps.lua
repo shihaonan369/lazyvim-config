@@ -3,7 +3,7 @@
 -- Add any additional keymaps here
 local map = vim.keymap.set
 for i = 1, 9 do
-  map("n", "g" .. i, i .. "tabnext", { desc = "Go to tab " .. i, silent = true })
+  map("n", "g" .. i, "<cmd>" .. i .. "tabnext<cr>", { desc = "Go to tab " .. i, silent = true })
 end
 
 map({ "i", "v" }, "jk", "<esc>", { desc = "esc", silent = true })
