@@ -2,6 +2,10 @@
 -- Default keymaps that are always set: https://github.com/LazyVim/LazyVim/blob/main/lua/lazyvim/config/keymaps.lua
 -- Add any additional keymaps here
 local map = vim.keymap.set
+for i = 1, 9 do
+  map("n", "g" .. i, i .. "tabnext", { desc = "Go to tab " .. i, silent = true })
+end
+
 map({ "i", "v" }, "jk", "<esc>", { desc = "esc", silent = true })
 map({ "i", "v" }, "kj", "<esc>", { desc = "esc", silent = true })
 map({ "t" }, "jk", [[<C-\><C-n>]], { desc = "esc", silent = true })
