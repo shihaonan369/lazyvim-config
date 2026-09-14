@@ -33,3 +33,7 @@ foo.*
 *.log
 data
 .lazy-lock.json
+
+# local
+.claude/
+.nvimlog
