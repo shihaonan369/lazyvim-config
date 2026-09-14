@@ -1,3 +1,5 @@
+local agent = require("agent_sessions")
+
 return {
   "nickjvandyke/opencode.nvim",
   version = "*",
@@ -28,38 +30,22 @@ return {
     },
   },
   keys = (function()
-    local focus_opencode = function()
-      vim.defer_fn(function()
-        for _, win in ipairs(vim.api.nvim_list_wins()) do
-          local buf = vim.api.nvim_win_get_buf(win)
-          if vim.bo[buf].buftype == "terminal" then
-            local name = vim.api.nvim_buf_get_name(buf)
-            if name:match("opencode") then
-              vim.api.nvim_set_current_win(win)
-              vim.cmd("startinsert")
-              break
-            end
-          end
-        end
-      end, 100)
-    end
-
     return {
       {
         "<C-a>",
-        function()
-          require("opencode").toggle()
-        end,
-        desc = "Toggle",
+        function() agent.toggle() end,
+        desc = "Toggle agent pane",
         mode = { "n", "t" },
       },
       {
         "<leader>aa",
-        function()
-          require("opencode").ask("@this: ", { submit = true })
-        end,
-        desc = "Ask",
-        mode = { "n", "x" },
+        function() agent.picker() end,
+        desc = "Agent sessions",
+      },
+      {
+        "<leader>an",
+        function() agent.new() end,
+        desc = "New agent session",
       },
       {
         "<leader>ae",
@@ -76,13 +62,13 @@ return {
           if mode == "v" or mode == "V" or mode == "\x16" then
             local start = vim.fn.getpos("'<")
             local end_ = vim.fn.getpos("'>")
+            local result
             if start[2] == end_[2] and start[3] == end_[3] then
-              local result = require("opencode").operator("@this ") .. "_"
-              focus_opencode()
-              return result
+              result = require("opencode").operator("@this ") .. "_"
+            else
+              result = require("opencode").operator("@this ")
             end
-            local result = require("opencode").operator("@this ")
-            focus_opencode()
+            vim.schedule(function() agent.focus() end)
             return result
           end
 
@@ -115,8 +101,7 @@ return {
             end
           end
           path = path or vim.fn.expand("%:p")
-          require("opencode").prompt(path .. " ", { submit = false })
-          focus_opencode()
+          agent.send(path .. " ", false)
           return ""
         end,
         mode = { "n", "v", "x" },
@@ -134,7 +119,7 @@ return {
                   return a.time.updated > b.time.updated
                 end)
                 server:select_session(sessions[1].id)
-                focus_opencode()
+                agent.focus()
               else
                 vim.notify("No sessions found", vim.log.levels.WARN, { title = "opencode" })
               end
@@ -147,7 +132,7 @@ return {
         "<leader>aR",
         function()
           require("opencode").select_session():next(function()
-            focus_opencode()
+            agent.focus()
           end)
         end,
         desc = "Resume",
@@ -155,6 +140,7 @@ return {
     }
   end)(),
   config = function()
+    agent.setup()
     vim.g.opencode_opts = {}
     vim.o.autoread = true
     vim.keymap.set("n", "+", "<C-a>", { noremap = true, desc = "Increment number" })

@@ -1,65 +1,4 @@
-local function codex_term(args)
-  local buf = nil
-  for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    local name = vim.api.nvim_buf_get_name(b)
-    if name:match("codex$") or name:match("codex ") then
-      buf = b
-      break
-    end
-  end
-
-  if buf and vim.api.nvim_buf_is_valid(buf) then
-    local wins = vim.fn.win_findbuf(buf)
-    if #wins > 0 then
-      vim.api.nvim_set_current_win(wins[1])
-      vim.cmd("startinsert")
-      return
-    end
-    vim.api.nvim_buf_delete(buf, { force = true })
-  end
-
-  Snacks.terminal.open({ "codex", unpack(args) }, {
-    win = {
-      position = "right",
-      width = 0.30,
-    },
-  })
-end
-
-local function send_and_focus(cmd)
-  local buf = nil
-  for _, b in ipairs(vim.api.nvim_list_bufs()) do
-    local name = vim.api.nvim_buf_get_name(b)
-    if name:match("codex$") or name:match("codex ") then
-      buf = b
-      break
-    end
-  end
-  if not buf then
-    codex_term({})
-    buf = nil
-    for _, b in ipairs(vim.api.nvim_list_bufs()) do
-      local name = vim.api.nvim_buf_get_name(b)
-      if name:match("codex$") or name:match("codex ") then
-        buf = b
-        break
-      end
-    end
-  end
-  if not buf then return end
-
-  local chan = vim.b[buf].terminal_job_id
-  if chan then
-    vim.api.nvim_chan_send(chan, cmd .. "\n")
-  end
-  vim.schedule(function()
-    local wins = vim.fn.win_findbuf(buf)
-    if #wins > 0 then
-      vim.api.nvim_set_current_win(wins[1])
-      vim.cmd("startinsert")
-    end
-  end)
-end
+local agent = require("agent_sessions")
 
 return {
   dir = vim.fn.stdpath("config"),
@@ -68,8 +7,10 @@ return {
     return vim.g.ai_assistant == "codex"
   end,
   config = function()
-    vim.keymap.set({ "n", "t" }, "<C-a>", function() codex_term({}) end, { desc = "Toggle Codex" })
-    vim.keymap.set("n", "<leader>aa", function() codex_term({}) end, { desc = "Toggle Codex" })
+    agent.setup()
+    vim.keymap.set({ "n", "t" }, "<C-a>", function() agent.toggle() end, { desc = "Toggle agent pane" })
+    vim.keymap.set("n", "<leader>aa", function() agent.picker() end, { desc = "Agent sessions" })
+    vim.keymap.set("n", "<leader>an", function() agent.new() end, { desc = "New agent session" })
     vim.keymap.set({ "n", "v" }, "<leader>as", function()
       local ft = vim.bo.filetype
       local tree_types = { NvimTree = true, ["neo-tree"] = true, oil = true, minifiles = true, netrw = true }
@@ -96,7 +37,7 @@ return {
         end
       end
       path = path or vim.fn.expand("%:p")
-      send_and_focus(path)
+      agent.send(path)
     end, { desc = "Smart Add" })
   end,
 }

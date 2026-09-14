@@ -1,10 +1,27 @@
+local agent = require("agent_sessions")
+
+-- claudecode.nvim 自定义 terminal provider：终端创建/显示全部交给 agent_sessions
+local provider = {
+  is_available = function() return true end,
+  setup = function(_term_config) agent.setup() end,
+  open = function(cmd_string, env, _cfg, focus)
+    agent.claude_open(cmd_string, env, focus ~= false)
+  end,
+  close = function() agent.hide() end,
+  simple_toggle = function(cmd_string, env, _cfg)
+    agent.claude_toggle(cmd_string, env, false)
+  end,
+  focus_toggle = function(cmd_string, env, _cfg)
+    agent.claude_toggle(cmd_string, env, true)
+  end,
+  get_active_bufnr = function() return agent.current_buf() end,
+  ensure_visible = function() agent.show_only() end,
+}
+
 local function send_and_focus(cmd)
   vim.cmd(cmd)
   vim.schedule(function()
-    vim.cmd("ClaudeCodeFocus")
-    vim.schedule(function()
-      vim.cmd("startinsert")
-    end)
+    agent.focus()
   end)
 end
 
@@ -24,19 +41,22 @@ return {
   dependencies = {
     "folke/snacks.nvim",
   },
-  config = true,
+  config = function(_, opts)
+    agent.setup()
+    require("claudecode").setup(opts)
+  end,
   opts = {
     terminal = {
-      split_side = "right",
-      split_width_percentage = 0.30,
+      provider = provider,
     },
     diff_opts = {
       keep_terminal_focus = true,
     },
   },
   keys = {
-    { "<C-a>", "<cmd>ClaudeCode<cr>", desc = "Toggle", mode = { "n", "t" } },
-    { "<leader>aa", "<cmd>ClaudeCodeFocus<cr>", desc = "Toggle and focus" },
+    { "<C-a>", function() agent.toggle() end, desc = "Toggle agent pane", mode = { "n", "t" } },
+    { "<leader>aa", function() agent.picker() end, desc = "Agent sessions" },
+    { "<leader>an", function() agent.new() end, desc = "New agent session" },
     { "<leader>aC", "<cmd>ClaudeCode --continue<cr>", desc = "Continue Claude" },
     { "<leader>aR", "<cmd>ClaudeCode --resume<cr>", desc = "Resume Claude" },
     { "<leader>aM", "<cmd>ClaudeCodeSelectModel<cr>", desc = "Select Model" },
