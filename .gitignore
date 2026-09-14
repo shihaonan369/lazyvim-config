@@ -32,7 +32,7 @@ debug
 foo.*
 *.log
 data
-.lazy-lock.json
+lazy-lock.json
 
 # local
 .claude/
