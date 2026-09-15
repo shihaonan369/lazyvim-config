@@ -136,9 +136,16 @@ adapters.claude = {
   end,
 }
 
+-- CLAUDE_CODE_NO_FLICKER=1 让 claude 以 fullscreen TUI（alternate screen）渲染；
+-- 仅作用于本系统 spawn 的进程，不影响终端里直接跑的 claude
+local function claude_spawn_env(env)
+  return vim.tbl_extend("force", env or {}, { CLAUDE_CODE_NO_FLICKER = "1" })
+end
+
 -- claude provider 桥接入口（由 claudecode.lua 的 provider table 调用）
 function M.claude_open(cmd_string, env, focus)
   local cmd_list = vim.split(cmd_string, "%s+")
+  env = claude_spawn_env(env)
   S.claude_cache = { cmd_list = cmd_list, env = env }
   local wants_new = S.intent == "new" or #cmd_list > 1
   S.intent = "show"
@@ -152,6 +159,7 @@ end
 
 function M.claude_toggle(cmd_string, env, focus_mode)
   local cmd_list = vim.split(cmd_string, "%s+")
+  env = claude_spawn_env(env)
   S.claude_cache = { cmd_list = cmd_list, env = env }
   local wants_new = S.intent == "new" or #cmd_list > 1
   S.intent = "show"
