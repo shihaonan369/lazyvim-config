@@ -103,6 +103,20 @@ local function spawn(cmd_list, env)
   return sess
 end
 
+-- CLAUDE_CODE_NO_FLICKER=1 让 claude 以 fullscreen TUI（alternate screen）渲染；
+-- 仅作用于本系统 spawn 的进程，不影响终端里直接跑的 claude
+local function claude_spawn_env(env)
+  return vim.tbl_extend("force", env or {}, { CLAUDE_CODE_NO_FLICKER = "1" })
+end
+
+-- claude 统一以 bypassPermissions 启动（新版写法，替代 --dangerously-skip-permissions）
+local function claude_spawn_cmd(cmd_list)
+  for _, arg in ipairs(cmd_list) do
+    if arg == "--permission-mode" then return cmd_list end
+  end
+  return vim.list_extend(vim.deepcopy(cmd_list), { "--permission-mode", "bypassPermissions" })
+end
+
 -- 适配层 ---------------------------------------------------------------
 
 local adapters = {}
@@ -126,7 +140,7 @@ adapters.claude = {
   new = function()
     if S.claude_cache then
       local base = { S.claude_cache.cmd_list[1] }
-      local sess = spawn(base, S.claude_cache.env)
+      local sess = spawn(claude_spawn_cmd(base), S.claude_cache.env)
       display(sess.id, true)
     else
       -- provider 从未被调过，让插件自己构造 cmd/env 走一次 provider.open
@@ -136,12 +150,6 @@ adapters.claude = {
   end,
 }
 
--- CLAUDE_CODE_NO_FLICKER=1 让 claude 以 fullscreen TUI（alternate screen）渲染；
--- 仅作用于本系统 spawn 的进程，不影响终端里直接跑的 claude
-local function claude_spawn_env(env)
-  return vim.tbl_extend("force", env or {}, { CLAUDE_CODE_NO_FLICKER = "1" })
-end
-
 -- claude provider 桥接入口（由 claudecode.lua 的 provider table 调用）
 function M.claude_open(cmd_string, env, focus)
   local cmd_list = vim.split(cmd_string, "%s+")
@@ -150,7 +158,7 @@ function M.claude_open(cmd_string, env, focus)
   local wants_new = S.intent == "new" or #cmd_list > 1
   S.intent = "show"
   if wants_new or #S.sessions == 0 then
-    local sess = spawn(cmd_list, env)
+    local sess = spawn(claude_spawn_cmd(cmd_list), env)
     display(sess.id, focus ~= false)
   else
     display(S.current, focus ~= false)
@@ -165,7 +173,7 @@ function M.claude_toggle(cmd_string, env, focus_mode)
   S.intent = "show"
 
   if wants_new or #S.sessions == 0 then
-    local sess = spawn(cmd_list, env)
+    local sess = spawn(claude_spawn_cmd(cmd_list), env)
     display(sess.id, true)
     return
   end
