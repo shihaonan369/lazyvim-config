@@ -109,8 +109,10 @@ local function claude_spawn_env(env)
   return vim.tbl_extend("force", env or {}, { CLAUDE_CODE_NO_FLICKER = "1" })
 end
 
--- claude 统一以 bypassPermissions 启动（新版写法，替代 --dangerously-skip-permissions）
+-- 沙箱环境（IS_SANDBOX=1）下 claude 才以 bypassPermissions 启动
+-- （新版写法，替代 --dangerously-skip-permissions）
 local function claude_spawn_cmd(cmd_list)
+  if vim.env.IS_SANDBOX ~= "1" then return cmd_list end
   for _, arg in ipairs(cmd_list) do
     if arg == "--permission-mode" then return cmd_list end
   end
