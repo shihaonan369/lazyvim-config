@@ -48,7 +48,7 @@ return {
 
       local theme_map = {
         retro = "tokyonight",
-        paper = "catppuccin",
+        paper = "catppuccin-latte",
       }
 
       local chosen_theme = theme_map[term_theme] or "tokyonight"
