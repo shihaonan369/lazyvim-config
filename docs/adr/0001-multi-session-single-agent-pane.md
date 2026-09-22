@@ -13,5 +13,5 @@
 
 - `<` / `>` 循环键是 **buffer-local**（terminal buffer 内、normal 模式），与左侧栏循环切换的体验统一。不能改成全局映射：那会覆盖代码 buffer 的缩进操作符（`>j`、`<ap`）。terminal 模式下这两个字符照常进入 agent 输入框，属预期行为。
 - 不混用 agent 类型：N 个 session 都是 `ai_assistant` 当前选中的类型。
-- session 按创建顺序自动编号（`claude #2`），不手动命名；进程退出即从列表消失，不留记录；所有 session 统一从 nvim cwd 启动。
+- session 编号是其在存活列表中的位置（`claude #2`），前面 session 退出后编号顺延（不展示单调出生 ID——否则会出现 `#3/1` 这种错位观感）；不手动命名；进程退出即从列表消失，不留记录；所有 session 统一从 nvim cwd 启动。
 - 三个集成接入点不同：codex.lua 完全自控；claudecode.nvim 走其自定义 terminal provider 接口（`provider` 函数表，`ClaudeCodeSend` 经 `provider.send` 照常工作）；opencode.nvim 绕开其单例 toggle，用其导出的 `terminal.setup(win)` 给自建终端挂 session 导航键位。

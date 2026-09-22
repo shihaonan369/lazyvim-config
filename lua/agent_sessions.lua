@@ -4,6 +4,9 @@ local M = {}
 
 local PANE_WIDTH = 0.30
 
+-- 与 <leader>a 分组同款图标（lua/plugins/which-key.lua 定义，U+EE0D）
+local PTYPE_ICON = vim.fn.nr2char(0xEE0D)
+
 local S = {
   ptype = nil,      -- "claude" | "codex" | "opencode"
   sessions = {},    -- { { id, bufnr, job_id, pid } }
@@ -25,10 +28,6 @@ local function by_buf(bufnr)
   for i, s in ipairs(S.sessions) do
     if s.bufnr == bufnr then return i, s end
   end
-end
-
-local function label(s)
-  return string.format("%s #%d", S.ptype, s.id)
 end
 
 local function emit()
@@ -325,9 +324,9 @@ function M.delete(id)
 end
 
 function M.status()
-  local _, cur = by_id(S.current)
-  if not cur then return "" end
-  return string.format("%s #%d/%d", S.ptype, cur.id, #S.sessions)
+  local idx = by_id(S.current)
+  if not idx then return "" end
+  return string.format("%s #%d/%d", PTYPE_ICON, idx, #S.sessions)
 end
 
 function M.count()
@@ -345,8 +344,8 @@ end
 
 function M.picker()
   local items = { { text = "+ new session", is_new = true } }
-  for _, s in ipairs(S.sessions) do
-    table.insert(items, { text = label(s), id = s.id, bufnr = s.bufnr })
+  for i, s in ipairs(S.sessions) do
+    table.insert(items, { text = string.format("%s #%d", PTYPE_ICON, i), id = s.id, bufnr = s.bufnr })
   end
 
   Snacks.picker({
