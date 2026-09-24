@@ -251,6 +251,19 @@ local function display(id, focus)
   emit()
 end
 
+-- tmux 身份剥除：nvimdc 工作流里 nvim 跑在 tmux 内，termopen 子进程会继承
+-- TMUX。claude/codex/opencode 看到 TMUX 就把终端查询与剪贴板输出写成 tmux
+-- passthrough DCS，而 nvim terminal 解不了 DCS，内层载荷（如 OSC11 背景色
+-- 查询的 "11;?"）会泄漏成字面文本渲染进 pane。agent session 的宿主是
+-- nvim terminal 而非 tmux，env 必须陈述这个事实（scripts/repro-osc-leak.sh）。
+local function scrub_tmux_env(env)
+  local e = vim.tbl_extend("force", env or {}, { TMUX = "", TMUX_PANE = "" })
+  if e.TERM_PROGRAM == "tmux" then
+    e.TERM_PROGRAM, e.TERM_PROGRAM_VERSION = "", ""
+  end
+  return e
+end
+
 local function spawn(cmd_list, env)
   local sess = { id = S.next_id, bufnr = nil, job_id = nil, pid = nil }
   S.next_id = S.next_id + 1
@@ -264,8 +277,7 @@ local function spawn(cmd_list, env)
   vim.api.nvim_win_set_buf(S.pane_win, sess.bufnr)
   S.current = sess.id
 
-  local opts = { cwd = vim.fn.getcwd() }
-  if env and next(env) ~= nil then opts.env = env end
+  local opts = { cwd = vim.fn.getcwd(), env = scrub_tmux_env(env) }
   -- termopen 挂在当前 buffer 上：pane 复用（未走 vsplit）时焦点可能在主区，
   -- 必须临时切到 pane 执行，否则会劫持主区当前 buffer
   vim.api.nvim_win_call(S.pane_win, function()
