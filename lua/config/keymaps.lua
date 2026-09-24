@@ -11,6 +11,30 @@ map({ "i", "v" }, "kj", "<esc>", { desc = "esc", silent = true })
 map({ "t" }, "jk", [[<C-\><C-n>]], { desc = "esc", silent = true })
 map({ "t" }, "kj", [[<C-\><C-n>]], { desc = "esc", silent = true })
 
+-- 窗口高度/宽度 拉满 ↔ 还原（与 C-方向键 微调同族，Shift = 拉满）
+local function toggle_max_height()
+  if vim.w.max_height then
+    vim.cmd(("resize %d"):format(vim.w.max_height))
+    vim.w.max_height = nil
+  else
+    vim.w.max_height = vim.fn.winheight(0)
+    vim.cmd("resize 9999")
+  end
+end
+
+local function toggle_max_width()
+  if vim.w.max_width then
+    vim.cmd(("vertical resize %d"):format(vim.w.max_width))
+    vim.w.max_width = nil
+  else
+    vim.w.max_width = vim.fn.winwidth(0)
+    vim.cmd("vertical resize 9999")
+  end
+end
+
+map("n", "<C-S-Up>", toggle_max_height, { desc = "Toggle Max Window Height", silent = true })
+map("n", "<C-S-Right>", toggle_max_width, { desc = "Toggle Max Window Width", silent = true })
+
 local next_terminal_count = 1
 local my_terminals = {}
 
