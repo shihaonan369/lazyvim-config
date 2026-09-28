@@ -394,14 +394,24 @@ local function claude_spawn_env(env)
   return vim.tbl_extend("force", env or {}, { CLAUDE_CODE_NO_FLICKER = "1" })
 end
 
--- 沙箱环境（IS_SANDBOX=1）下 claude 才以 bypassPermissions 启动
--- （新版写法，替代 --dangerously-skip-permissions）
+-- claude 专属启动参数注入：--settings 挂 agent 状态 hooks
+-- （scripts/agent-status-settings.json，随本仓库走，只作用于这里 spawn 的
+-- claude，不污染全局 ~/.claude/settings.json）；沙箱（IS_SANDBOX=1）再追加
+-- bypassPermissions（新版写法，替代 --dangerously-skip-permissions）
+local CLAUDE_STATUS_SETTINGS = vim.fn.stdpath("config") .. "/scripts/agent-status-settings.json"
+
 local function claude_spawn_cmd(cmd_list)
-  if vim.env.IS_SANDBOX ~= "1" then return cmd_list end
-  for _, arg in ipairs(cmd_list) do
-    if arg == "--permission-mode" then return cmd_list end
+  if not vim.fn.fnamemodify(cmd_list[1], ":t"):find("claude", 1, true) then
+    return cmd_list -- 非 claude 命令（如测试用 /bin/sleep 冒充）不注入
   end
-  return vim.list_extend(vim.deepcopy(cmd_list), { "--permission-mode", "bypassPermissions" })
+  local out = vim.deepcopy(cmd_list)
+  if not vim.tbl_contains(out, "--settings") then
+    vim.list_extend(out, { "--settings", CLAUDE_STATUS_SETTINGS })
+  end
+  if vim.env.IS_SANDBOX == "1" and not vim.tbl_contains(out, "--permission-mode") then
+    vim.list_extend(out, { "--permission-mode", "bypassPermissions" })
+  end
+  return out
 end
 
 -- 适配层 ---------------------------------------------------------------

@@ -19,7 +19,7 @@ AGENT_STATUS_FILE      （共用 scripts/agent-status-hook.sh）    一个文件
 - **事件订阅**（claude / codex 同构）：`UserPromptSubmit`/`PostToolUse`→working、`Stop`→idle、`PermissionRequest`→attention；codex 另有 `Interrupt`→idle。`PostToolUse` 的作用是 attention 态的恢复信号（批准后 agent 继续干活）。
 - **nvim 侧**：`luv fs_event`（macOS FSEvents，实测即时回调；`vim.fs.watch` 不存在）监听追加，seek 到已读 offset 只消费新完整行（残行留待续读，截断兜底归零）；状态挂在 `S.sessions[i].state`，TermClose 移除 session 时状态随之消失，**零垃圾回收**；变化后 `emit()`（既有 `redrawstatus` + `User AgentSessionsChanged`）驱动 statusline，闭眼颜色实时性由此保证。
 - **渲染**：`M.status()` 每 session 一个 `<leader>a` 同款图标（U+EE0D），当前 session 加方括号；pane 收起时全体换闭眼（nf-md-eye_off，U+F0209）。颜色用内嵌 `%#Group#`（lualine 对组件串内嵌 `%#` 是一等支持，`component.lua` 显式处理）。`#N/M` 前缀弃用——图标个数即 session 数，顺序=编号顺延。（曾评估"同字形大小两档"标记当前：需借 Ghostty 字体槽（Mono 压缩/非 Mono 自然宽）+ bold 属性路由，机制复杂且有 ModeMsg 本身带 bold 的连带坑，弃。）
-- **降级**：机器侧 hook 配置未装时状态恒为 nil，图标呈中性色（`ModeMsg`），不报错。
+- **降级**：claude 侧 hooks 由 spawn 自动注入（见下）恒生效；codex/opencode 的机器侧配置未装时状态恒为 nil，图标呈中性色（`ModeMsg`），不报错。
 
 ## 弃用的通道（都有核实依据，记此防止反复）
 
@@ -41,20 +41,9 @@ statusline 透明，图标配色实际落在终端背景上，故按两套生效
 
 配色集中在 `agent_sessions.lua` 的 `STATE_HL` / `HL_NEUTRAL`，勿按语义直觉改回 DiagnosticWarn 一类（见上表落选数据）。
 
-## 机器侧配置（repo 外，手动安装；未装=中性色降级）
+## 机器侧配置
 
-**~/.claude/settings.json**（合并进既有 hooks）：
-
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [ { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh working" } ] } ],
-    "PostToolUse":      [ { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh working" } ] } ],
-    "Stop":             [ { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh idle" } ] } ],
-    "PermissionRequest":[ { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh attention" } ] } ]
-  }
-}
-```
+**claude：零安装**。`claude_spawn_cmd`（agent_sessions.lua）在 spawn 时自动追加 `--settings <config>/scripts/agent-status-settings.json`——hooks 配置随本仓库走版本控制，只作用于 agent pane 里 spawn 的 claude，**不触碰全局 `~/.claude/settings.json`**。终端里裸跑的 claude 双重免疫：不加载该文件、也没有 `AGENT_*` env（脚本静默 no-op）。（也曾考虑 Claude Code 插件级 hooks/hooks.json——需要 marketplace/插件目录机器配置，注入面反而更宽；`--settings` 按 spawn 精确注入，更贴身。）
 
 **~/.codex/hooks.json**（同构 + `Interrupt`→idle；装后 codex 内 `/hooks` 信任一次）：
 

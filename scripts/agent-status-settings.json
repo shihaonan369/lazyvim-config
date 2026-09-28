@@ -1,0 +1,17 @@
+{
+  "$comment": "agent session 状态 hooks(docs/adr/0003)。由 agent_sessions.claude_spawn_cmd 以 --settings 注入,只作用于 nvim agent pane 里 spawn 的 claude;env 未注入(AGENT_STATUS_FILE)时脚本静默 no-op",
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh working" } ] }
+    ],
+    "PostToolUse": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh working" } ] }
+    ],
+    "Stop": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh idle" } ] }
+    ],
+    "PermissionRequest": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh attention" } ] }
+    ]
+  }
+}
