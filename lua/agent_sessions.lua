@@ -6,10 +6,12 @@ local PANE_WIDTH = 0.30
 
 -- 与 <leader>a 分组同款图标（lua/plugins/which-key.lua 定义，U+EE0D）
 local PTYPE_ICON = vim.fn.nr2char(0xEE0D)
+-- 闭眼（nf-md-eye_off）：pane 收起时逐 session 替代 PTYPE_ICON（docs/adr/0003）
+local EYE_OFF = vim.fn.nr2char(0xF0209)
 
 local S = {
   ptype = nil,      -- "claude" | "codex" | "opencode"
-  sessions = {},    -- { { id, bufnr, job_id, pid } }
+  sessions = {},    -- { { id, bufnr, job_id, pid, tag, state } }
   current = nil,    -- session id
   pane_win = nil,   -- winid
   next_id = 1,
@@ -264,9 +266,93 @@ local function scrub_tmux_env(env)
   return e
 end
 
+-- agent 状态事件管线（docs/adr/0003）--------------------------------------
+-- spawn 给 agent 注入 AGENT_SESSION_TAG / AGENT_STATUS_FILE；claude/codex 的
+-- hooks（scripts/agent-status-hook.sh，状态词由各家 hook 配置的 argv 写死）与
+-- opencode 插件把归一化事件 {"tag":…,"state":…} 单行追加进本实例的事件邮箱；
+-- 这里用 luv fs_event 监听追加、按 tag 归因到 session。全程事件驱动零轮询，
+-- 状态挂在 session 上随 TermClose 消失；机器侧 hook 未配置时状态恒为 nil，
+-- statusline 呈中性色，不报错。
+
+-- 状态配色：借现成主题组（repo 惯例），实测须在两套生效主题（tokyonight 暗底
+-- #1a1b26 / catppuccin-latte 亮底 #eff1f5，statusline 透明故按主题 base bg）下
+-- 都满足 WCAG ≥3:1。语义首选反而落选：DiagnosticWarn 橙 latte 仅 2.31、
+-- DiagnosticOk 绿 latte 2.96、Special 粉 latte 2.34、Comment 灰 tokyo 2.76。
+-- 入选：Function 蓝 6.79/4.34、Character 绿青 9.35/3.31、
+-- DiagnosticError 红 4.17/4.80、ModeMsg 灰 8.10/7.06（数据见 docs/adr/0003）。
+local STATE_HL = {
+  working = "Function",
+  idle = "Character",
+  attention = "DiagnosticError",
+}
+
+local HL_NEUTRAL = "ModeMsg" -- 无事件（机器侧 hook 未配置）时的中性色
+
+local status_watcher = {
+  file = nil,   -- 事件邮箱路径（每 nvim 实例一个，退出时删除）
+  handle = nil, -- luv fs_event
+  offset = 0,   -- 已消费字节数
+  partial = "", -- 无换行的残行（留待下次事件续读）
+}
+
+local function status_file()
+  -- stdpath("run") 是本实例私有临时目录，天然按实例隔离，孤儿由系统清理
+  return vim.fn.stdpath("run") .. "/agent-status.jsonl"
+end
+
+local function status_apply(line)
+  local ok, ev = pcall(vim.json.decode, line)
+  if not ok or type(ev) ~= "table" then return end
+  if not STATE_HL[ev.state] then return end -- 只认统一状态词表
+  for _, s in ipairs(S.sessions) do
+    if s.tag == ev.tag then
+      s.state = ev.state
+      return
+    end
+  end
+end
+
+local function status_drain()
+  local w = status_watcher
+  local fd = vim.uv.fs_open(w.file, "r", 384) -- 0600
+  if not fd then return end
+  local stat = vim.uv.fs_fstat(fd)
+  if stat then
+    if stat.size < w.offset then w.offset, w.partial = 0, "" end -- 截断兜底
+    if stat.size > w.offset then
+      local data = vim.uv.fs_read(fd, stat.size - w.offset, w.offset)
+      if data then
+        w.offset = w.offset + #data
+        w.partial = w.partial .. data
+        while true do
+          local nl = w.partial:find("\n", 1, true)
+          if not nl then break end
+          status_apply(w.partial:sub(1, nl - 1))
+          w.partial = w.partial:sub(nl + 1)
+        end
+      end
+    end
+  end
+  vim.uv.fs_close(fd)
+end
+
+local function status_watch_start()
+  if status_watcher.handle then return end
+  local file = status_file()
+  local fd = vim.uv.fs_open(file, "a", 384) -- 0600；邮箱先落地，fs_event 只认既有路径
+  if fd then vim.uv.fs_close(fd) end
+  status_watcher.file = file
+  status_watcher.handle = vim.uv.new_fs_event()
+  status_watcher.handle:start(file, {}, vim.schedule_wrap(function()
+    status_drain()
+    emit()
+  end))
+end
+
 local function spawn(cmd_list, env)
-  local sess = { id = S.next_id, bufnr = nil, job_id = nil, pid = nil }
+  local sess = { id = S.next_id, bufnr = nil, job_id = nil, pid = nil, tag = nil, state = nil }
   S.next_id = S.next_id + 1
+  sess.tag = vim.fn.getpid() .. "." .. sess.id -- 状态事件归因（docs/adr/0003）
 
   local prev_win = vim.api.nvim_get_current_win()
   -- pane 先立起来：termopen 需要一个当前 buffer，session 建好即显示
@@ -277,7 +363,14 @@ local function spawn(cmd_list, env)
   vim.api.nvim_win_set_buf(S.pane_win, sess.bufnr)
   S.current = sess.id
 
-  local opts = { cwd = vim.fn.getcwd(), env = scrub_tmux_env(env) }
+  status_watch_start() -- 邮箱先立起来，agent 启动期的事件不丢
+  local opts = {
+    cwd = vim.fn.getcwd(),
+    env = vim.tbl_extend("force", scrub_tmux_env(env), {
+      AGENT_SESSION_TAG = sess.tag,
+      AGENT_STATUS_FILE = status_file(),
+    }),
+  }
   -- termopen 挂在当前 buffer 上：pane 复用（未走 vsplit）时焦点可能在主区，
   -- 必须临时切到 pane 执行，否则会劫持主区当前 buffer
   vim.api.nvim_win_call(S.pane_win, function()
@@ -457,6 +550,16 @@ function M.setup()
           end
         end
       end
+      -- 状态管线收尾：停监听并删除本实例事件邮箱（docs/adr/0003）
+      if status_watcher.handle then
+        status_watcher.handle:stop()
+        status_watcher.handle:close()
+        status_watcher.handle = nil
+      end
+      if status_watcher.file then
+        vim.uv.fs_unlink(status_watcher.file)
+        status_watcher.file = nil
+      end
     end,
   })
 end
@@ -521,10 +624,23 @@ function M.delete(id)
   -- TermClose 回调负责移除和清理
 end
 
+-- statusline 段：每 session 一个图标，色 = 状态，当前 session 加方括号；
+-- pane 收起时全体换闭眼图标，颜色仍实时反映状态。嵌入 %#Group# 高亮
+-- （lualine 对组件串内嵌 %# 是一等支持）。docs/adr/0003
 function M.status()
-  local idx = by_id(S.current)
-  if not idx then return "" end
-  return string.format("%s #%d/%d", PTYPE_ICON, idx, #S.sessions)
+  if #S.sessions == 0 then return "" end
+  local glyph = pane_valid() and PTYPE_ICON or EYE_OFF
+  local parts = {}
+  for i, s in ipairs(S.sessions) do
+    local body = (s.id == S.current) and ("[" .. glyph .. "]") or glyph
+    parts[i] = "%#" .. (STATE_HL[s.state] or HL_NEUTRAL) .. "#" .. body
+  end
+  return table.concat(parts) .. "%*"
+end
+
+-- 本实例的状态事件邮箱路径（测试/诊断用）
+function M.event_file()
+  return status_watcher.file or status_file()
 end
 
 function M.count()
