@@ -13,7 +13,7 @@ _Avoid_: AI、assistant、codex（用具体类型名指代时除外）
 _Avoid_: terminal、buffer、instance、tab
 
 **Session 状态（working / idle / attention）**:
-session 的回合级状态，由各家官方事件出口经统一事件管线驱动（docs/adr/0003）：working=回合进行中；idle=一轮完成、等待输入（即"completed"）；attention=等待用户确认（权限等）。进程退出不是状态——session 退出即移除，不留显示不留色。statusline 每 session 一个图标，当前 session 加方括号，色=状态；pane 收起时全体换闭眼图标，颜色照旧。
+session 的回合级状态，由各家官方事件出口经统一事件管线驱动（docs/adr/0003）：working=回合进行中；idle=一轮完成、等待输入（即"completed"）；attention=等待用户确认（权限等）。进程退出不是状态——session 退出即移除，不留显示不留色。statusline 里每 session 一个等距图标：当前=实心机器人（nf-md-robot）、后台=空心孪生（nf-md-robot_outline），色=状态；pane 收起时全体换闭眼，颜色照旧。
 _Avoid_: running/completed/failed（用统一状态词）、把退出当状态
 
 **Agent pane**:

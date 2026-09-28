@@ -4,8 +4,12 @@ local M = {}
 
 local PANE_WIDTH = 0.30
 
--- 与 <leader>a 分组同款图标（lua/plugins/which-key.lua 定义，U+EE0D）
-local PTYPE_ICON = vim.fn.nr2char(0xEE0D)
+-- 图标对（与 <leader>a 分组同款，lua/plugins/which-key.lua）：
+-- 当前/唯一 session = nf-md-robot 实心（U+F06A9）；后台 = nf-md-robot_outline
+-- 空心孪生（U+F167A）——字形通道标记"当前"：格子属性(下划线/反色)对不齐
+-- PUA 大字形向右溢出的墨迹，同走溢出规则的字形才天然对称(docs/adr/0003)
+local PTYPE_ICON = vim.fn.nr2char(0xF06A9)
+local BG_ICON = vim.fn.nr2char(0xF167A)
 -- 闭眼（nf-md-eye_off）：pane 收起时逐 session 替代 PTYPE_ICON（docs/adr/0003）
 local EYE_OFF = vim.fn.nr2char(0xF0209)
 
@@ -287,6 +291,7 @@ local STATE_HL = {
 }
 
 local HL_NEUTRAL = "ModeMsg" -- 无事件（机器侧 hook 未配置）时的中性色
+
 
 local status_watcher = {
   file = nil,   -- 事件邮箱路径（每 nvim 实例一个，退出时删除）
@@ -634,16 +639,18 @@ function M.delete(id)
   -- TermClose 回调负责移除和清理
 end
 
--- statusline 段：每 session 一个图标，色 = 状态，当前 session 加方括号；
--- pane 收起时全体换闭眼图标，颜色仍实时反映状态。嵌入 %#Group# 高亮
--- （lualine 对组件串内嵌 %# 是一等支持）。docs/adr/0003
+-- statusline 段：每 session「图标 + 随行空格」等距排布；色 = 状态；当前 =
+-- 实心图标、后台 = 空心孪生（字形通道，对称是构造性的）。空格承接 PUA 大
+-- 字形向右溢出（Ghostty kitty 式"PUA+尾随空白"渲染）。pane 收起时全体换
+-- 闭眼（此时"当前"标记暂不可见，重开即恢复）。docs/adr/0003
 function M.status()
   if #S.sessions == 0 then return "" end
-  local glyph = pane_valid() and PTYPE_ICON or EYE_OFF
+  local hidden = not pane_valid()
   local parts = {}
   for i, s in ipairs(S.sessions) do
-    local body = (s.id == S.current) and ("[" .. glyph .. "]") or glyph
-    parts[i] = "%#" .. (STATE_HL[s.state] or HL_NEUTRAL) .. "#" .. body
+    local glyph = hidden and EYE_OFF
+      or ((s.id == S.current) and PTYPE_ICON or BG_ICON)
+    parts[i] = "%#" .. (STATE_HL[s.state] or HL_NEUTRAL) .. "#" .. glyph .. " "
   end
   return table.concat(parts) .. "%*"
 end
