@@ -1,8 +1,8 @@
 # Agent 状态事件管线：边缘归一 + env 归因 + 文件邮箱 + fs_event
 
-日期：2026-09-27，状态：accepted
+日期：2026-09-27（2026-09-29 修订：状态表情图标），状态：accepted
 
-需求：statusline 里逐 session 显示 agent 状态（working / idle / attention），pane 收起时全体闭眼、颜色仍实时更新。约束是硬的：拒绝 timer 轮询、拒绝终端输出/文案抓取；没有干净机制就宁可不做（用户既有裁决）。三路核实（claude/codex 官方文档、opencode 源码与文档、nvim 0.12.5 本机实测）后确认三家都有官方事件出口，本管线成立。
+需求：statusline 里逐 session 显示 agent 状态（working / idle / attention），pane 收起时全体换睡觉图标、颜色仍实时更新。约束是硬的：拒绝 timer 轮询、拒绝终端输出/文案抓取；没有干净机制就宁可不做（用户既有裁决）。三路核实（claude/codex 官方文档、opencode 源码与文档、nvim 0.12.5 本机实测）后确认三家都有官方事件出口，本管线成立。
 
 ## 决定
 
@@ -17,8 +17,8 @@ AGENT_STATUS_FILE      （共用 scripts/agent-status-hook.sh）    一个文件
 - **归因**：`spawn()` 一处给三家注入 `AGENT_SESSION_TAG=<nvim getpid()>.<sess.id>` 与 `AGENT_STATUS_FILE`。文件路径走 env 而非写死进 hook 配置，于是每 nvim 实例一个邮箱（`stdpath("run")`，本实例私有临时目录），零跨实例过滤；agent 在 nvim 外裸跑时 env 未设，脚本静默 no-op，互不干扰。
 - **边缘归一**：claude/codex 的 hooks 配置按事件分条目，状态词直接写死在各条目 argv 里，`scripts/agent-status-hook.sh` 零 JSON 解析（5 行）；opencode 插件把事件总线映射成同一状态词。邮箱里只有 `{"tag":…,"state":…}` 单行 JSON，append < PIPE_BUF 原子。
 - **事件订阅**（claude / codex 同构）：`UserPromptSubmit`/`PostToolUse`→working、`Stop`→idle、`PermissionRequest`→attention；codex 另有 `Interrupt`→idle。`PostToolUse` 的作用是 attention 态的恢复信号（批准后 agent 继续干活）。
-- **nvim 侧**：`luv fs_event`（macOS FSEvents，实测即时回调；`vim.fs.watch` 不存在）监听追加，seek 到已读 offset 只消费新完整行（残行留待续读，截断兜底归零）；状态挂在 `S.sessions[i].state`，TermClose 移除 session 时状态随之消失，**零垃圾回收**；变化后 `emit()`（既有 `redrawstatus` + `User AgentSessionsChanged`）驱动 statusline，闭眼颜色实时性由此保证。
-- **渲染（终版）**：每 session 一个「图标 + 随行空格」等距单元，色 = 状态；**当前 = nf-md-robot 实心（U+F06A9），后台 = nf-md-robot_outline 空心孪生（U+F167A）**（与 `<leader>a` 分组图标同款，字形通道标记"当前"）；pane 收起时全体换闭眼（nf-md-eye_off，U+F0209）。颜色内嵌 `%#Group#`（lualine 一等支持）。`#N/M` 前缀弃用。**随行空格是机制的一部分**：PUA 大字形墨迹向右溢出（Ghostty kitty 式"PUA+尾随空白"渲染），随行空格格承接溢出，并让所有图标走同一渲染路径（用户实测成立）——也因此格子对齐的属性标记（方括号/下划线/反色）必然与溢出墨迹错位、无法对称，被逐一证伪；bold 会切字体槽改变字形，同样禁用。
+- **nvim 侧**：`luv fs_event`（macOS FSEvents，实测即时回调；`vim.fs.watch` 不存在）监听追加，seek 到已读 offset 只消费新完整行（残行留待续读，截断兜底归零）；状态挂在 `S.sessions[i].state`，TermClose 移除 session 时状态随之消失，**零垃圾回收**；变化后 `emit()`（既有 `redrawstatus` + `User AgentSessionsChanged`）驱动 statusline，睡觉图标的颜色实时性由此保证。
+- **渲染（2026-09-29 修订：表情机器人）**：每 session 一个「图标 + 随行空格」等距单元，图标 = 状态表情 × 当前(实心)/后台(空心)孪生，与颜色**双编码**状态（色盲可辨）：**working = robot_excited（U+F16A3 / outline U+F16A4）、idle = robot_happy（U+F1719 / outline U+F171A）、attention = robot_confused（U+F169F / outline U+F16A0）**——每对实心=当前、空心=后台（字形通道标记"当前"，对称是构造性的）；无事件（机器侧 hook 未配置）无表情，落回 **robot（U+F06A9）/ robot_outline（U+F167A）**（`<leader>a` 分组同款）——"未知"≠"睡觉"，两个概念两个图标；pane 收起时全体换 **robot_off（U+F16A7）**，状态色保留（替原 eye_off U+F0209）。隐喻闭环：醒着的机器人有情绪，收起的统一睡觉。angry/dead/love 有字形无状态可挂，刻意不用（图标与状态 1:1，不为图标开新状态；退出即抹除与 ADR 0001 无墓碑一致）。颜色内嵌 `%#Group#`（lualine 一等支持）。`#N/M` 前缀弃用。**随行空格是机制的一部分**：PUA 大字形墨迹向右溢出（Ghostty kitty 式"PUA+尾随空白"渲染），随行空格承接溢出，并让所有图标走同一渲染路径（用户实测成立）——也因此格子对齐的属性标记（方括号/下划线/反色）必然与溢出墨迹错位、无法对称，被逐一证伪；bold 会切字体槽改变字形，同样禁用。
 - **降级**：claude 侧 hooks 由 spawn 自动注入（见下）恒生效；codex/opencode 的机器侧配置未装时状态恒为 nil，图标呈中性色（`ModeMsg`），不报错。
 
 ## 弃用的通道（都有核实依据，记此防止反复）

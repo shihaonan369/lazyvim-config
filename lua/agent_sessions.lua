@@ -4,14 +4,22 @@ local M = {}
 
 local PANE_WIDTH = 0.30
 
--- 图标对（与 <leader>a 分组同款，lua/plugins/which-key.lua）：
--- 当前/唯一 session = nf-md-robot 实心（U+F06A9）；后台 = nf-md-robot_outline
--- 空心孪生（U+F167A）——字形通道标记"当前"：格子属性(下划线/反色)对不齐
--- PUA 大字形向右溢出的墨迹，同走溢出规则的字形才天然对称(docs/adr/0003)
-local PTYPE_ICON = vim.fn.nr2char(0xF06A9)
-local BG_ICON = vim.fn.nr2char(0xF167A)
--- 闭眼（nf-md-eye_off）：pane 收起时逐 session 替代 PTYPE_ICON（docs/adr/0003）
-local EYE_OFF = vim.fn.nr2char(0xF0209)
+-- 图标：表情 = 状态（与颜色双编码），实心/空心孪生 = 当前/后台角色。
+-- working=robot_excited（干得起劲）、idle=robot_happy（心满意足交差）、
+-- attention=robot_confused（问号脸等拍板），各带 outline 空心孪生（后台）。
+-- 无事件（机器侧 hook 未配置）无表情，落回 robot（U+F06A9）/ robot_outline
+-- （U+F167A）对（<leader>a 分组同款）——"未知"与"睡觉"是两个概念两个图标。
+-- angry/dead/love 有字形无状态可挂，刻意不用（图标与状态 1:1，不为图标开
+-- 新状态）。格子属性(下划线/反色)对不齐 PUA 大字形向右溢出的墨迹，同走
+-- 溢出规则的字形才天然对称(docs/adr/0003)
+local STATE_ICON = {
+  working = { vim.fn.nr2char(0xF16A3), vim.fn.nr2char(0xF16A4) }, -- excited 实心/空心
+  idle = { vim.fn.nr2char(0xF1719), vim.fn.nr2char(0xF171A) }, -- happy 实心/空心
+  attention = { vim.fn.nr2char(0xF169F), vim.fn.nr2char(0xF16A0) }, -- confused 实心/空心
+}
+local NEUTRAL_ICON = { vim.fn.nr2char(0xF06A9), vim.fn.nr2char(0xF167A) } -- robot 对（无事件）
+-- 睡觉（nf-md-robot_off）：pane 收起时逐 session 替代表情（docs/adr/0003）
+local ROBOT_OFF = vim.fn.nr2char(0xF16A7)
 
 local S = {
   ptype = nil,      -- "claude" | "codex" | "opencode"
@@ -639,17 +647,18 @@ function M.delete(id)
   -- TermClose 回调负责移除和清理
 end
 
--- statusline 段：每 session「图标 + 随行空格」等距排布；色 = 状态；当前 =
--- 实心图标、后台 = 空心孪生（字形通道，对称是构造性的）。空格承接 PUA 大
--- 字形向右溢出（Ghostty kitty 式"PUA+尾随空白"渲染）。pane 收起时全体换
--- 闭眼（此时"当前"标记暂不可见，重开即恢复）。docs/adr/0003
+-- statusline 段：每 session「图标 + 随行空格」等距排布；图标 = 状态表情 ×
+-- 当前(实心)/后台(空心)孪生，与颜色双编码状态。空格承接 PUA 大字形向右
+-- 溢出（Ghostty kitty 式"PUA+尾随空白"渲染）。pane 收起时全体换 robot_off
+-- 睡觉（此时"当前"标记暂不可见，重开即恢复，状态色保留）。docs/adr/0003
 function M.status()
   if #S.sessions == 0 then return "" end
   local hidden = not pane_valid()
   local parts = {}
   for i, s in ipairs(S.sessions) do
-    local glyph = hidden and EYE_OFF
-      or ((s.id == S.current) and PTYPE_ICON or BG_ICON)
+    local pair = STATE_ICON[s.state] or NEUTRAL_ICON
+    local glyph = hidden and ROBOT_OFF
+      or pair[(s.id == S.current) and 1 or 2]
     parts[i] = "%#" .. (STATE_HL[s.state] or HL_NEUTRAL) .. "#" .. glyph .. " "
   end
   return table.concat(parts) .. "%*"
