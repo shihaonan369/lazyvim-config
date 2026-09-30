@@ -49,6 +49,21 @@ winvar，无人最大化则恢复原值。`winheight` 默认即 1，无同类问
   vs 用户自己加宽的"，误伤 + 闪变——改规则读的值（预防）优于跟规则打架
   （纠正）。
 
+## 修订（同日）：开/关窗后的最大化再宣示
+
+最大化存续期间布局仍会被外力改写：**关窗**时 equalalways 把存活窗口均分
+（`<leader>e` 关 neo-tree，pane 188→100）；**重开侧栏**时 neo-tree 的 vsplit
+舞步劫走 pane 一半再自 reshape、顺带把主区窗灌大（实测 `equalalways=false`
+结果逐字相同——重开侧的均分不全是 equalalways 干的，插件的 vsplit+定宽
+本身就会重排别人）。修：`reassert_maximized(keep)`——布局被开/关窗改写后
+重演最大化语义：非固定、非最大化窗收回 winminwidth，winfixwidth 侧栏保
+自身宽，keep 豁免的新窗不动，最大化窗吃剩余（目标宽度精确计算，不用
+resize 9999——会碾碎刚开的侧栏）。挂 WinClosed（释放份额归还最大化窗；
+最大化窗自身消亡只走 winwidth 收尾）与 WinNew（只管 winfixwidth 侧栏类
+新窗、延迟 150ms 等其 reshape 完；WinNew 的 afile 为空，从当前窗捕获，
+抓错被 winfixwidth 守卫拒绝、失败安全）。普通 vsplit 不触发——用户主动
+要地方，视为放弃最大化的信号。浮窗开合零动作（守卫拒绝）。
+
 ## 已知边界
 
 - 让位路径（docs/adr/0002 修订：清 `max_width`）不即时恢复 winwidth——

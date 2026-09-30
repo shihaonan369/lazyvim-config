@@ -39,7 +39,9 @@ local function sync_winwidth()
     end
   end
   if maximized then
-    if not saved_winwidth then saved_winwidth = vim.o.winwidth end
+    if not saved_winwidth then
+      saved_winwidth = vim.o.winwidth
+    end
     vim.o.winwidth = vim.o.winminwidth
   elseif saved_winwidth then
     vim.o.winwidth = saved_winwidth
@@ -58,9 +60,70 @@ local function toggle_max_width()
   sync_winwidth()
 end
 
--- 最大化窗口未经 toggle 直接消亡时收走临时 winwidth
+-- 最大化语义的再宣示：布局被开/关窗外力改写后（equalalways 均分、neo-tree
+-- 开窗的 vsplit 舞步都会重排别人——<leader>e 关/开侧栏即中招），把"其余
+-- 窗收回 winminwidth、winfixwidth 侧栏保自身宽、keep 豁免的新窗不动、
+-- 最大化窗吃剩余"重演一遍。目标宽度精确计算，不用 resize 9999（会碾碎
+-- 刚开的侧栏）。
+local function reassert_maximized(keep)
+  local wins, holders = {}, {}
+  for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if vim.api.nvim_win_is_valid(w) and vim.api.nvim_win_get_config(w).relative == "" then
+      wins[#wins + 1] = w
+      if vim.w[w].max_width then
+        holders[#holders + 1] = w
+      end
+    end
+  end
+  if #holders > 0 then
+    for _, w in ipairs(wins) do
+      if w ~= keep and not vim.w[w].max_width and not vim.wo[w].winfixwidth then
+        if vim.api.nvim_win_get_width(w) > vim.o.winminwidth then
+          pcall(vim.api.nvim_win_set_width, w, vim.o.winminwidth)
+        end
+      end
+    end
+    for _, h in ipairs(holders) do
+      local others = 0
+      for _, w in ipairs(wins) do
+        if w ~= h then
+          others = others + vim.api.nvim_win_get_width(w)
+        end
+      end
+      local target = vim.o.columns - (#wins - 1) - others
+      if target > vim.api.nvim_win_get_width(h) then
+        pcall(vim.api.nvim_win_set_width, h, target)
+      end
+    end
+  end
+  sync_winwidth()
+end
+
+-- 关窗：释放的份额归还最大化窗；最大化窗自身消亡则只收走临时 winwidth
 vim.api.nvim_create_autocmd("WinClosed", {
-  callback = function() vim.schedule(sync_winwidth) end,
+  callback = function()
+    vim.schedule(function()
+      reassert_maximized(nil)
+    end)
+  end,
+})
+-- 开窗：只重宣示侧栏类（winfixwidth）新窗——普通 vsplit 是用户要地方，
+-- 视为放弃最大化的信号；延迟等新窗把自己 reshape 完（neo-tree 先 vsplit
+-- 后定宽）。WinNew 的 afile 为空，取当前窗（新建即当前；抓错会被
+-- winfixwidth 守卫拒绝，失败安全）
+vim.api.nvim_create_autocmd("WinNew", {
+  callback = function()
+    local new = vim.api.nvim_get_current_win()
+    vim.defer_fn(function()
+      if
+        vim.api.nvim_win_is_valid(new)
+        and vim.api.nvim_win_get_config(new).relative == ""
+        and vim.wo[new].winfixwidth
+      then
+        reassert_maximized(new)
+      end
+    end, 150)
+  end,
 })
 
 map("n", "<C-S-Up>", toggle_max_height, { desc = "Toggle Max Window Height", silent = true })
