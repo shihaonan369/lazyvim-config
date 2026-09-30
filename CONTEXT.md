@@ -17,8 +17,12 @@ session 的回合级状态，由各家官方事件出口经统一事件管线驱
 _Avoid_: running/completed/failed（用统一状态词）、把退出当状态
 
 **Agent pane**:
-界面上唯一展示 session 的窗口槽位（右侧固定位置）。同一时刻只显示一个 session 的内容，切换 session 即换 pane 中的内容，隐藏 pane 不影响后台 session。
+界面上唯一展示 session 的窗口槽位（右侧固定位置）。同一时刻只显示一个 session 的内容，切换 session 即换 pane 中的内容，隐藏 pane 不影响后台 session。pane 几何（宽度/最大化）只属于用户：session 生死、pane 隐藏复显一律不碰既有几何；唯一例外见"Pane 让位"，以及窗口重建（全灭后复现）回初始宽度。
 _Avoid_: agent window、sidebar（左侧文件栏才是 sidebar）
+
+**Pane 让位**:
+主区没有文件窗口而有文件需要落位时，pane 缩回初始宽度（右侧槽位 30%）、文件开进主区，同一动作取消 pane 的最大化（若有）。这是唯一允许系统改写 pane 几何的路径（docs/adr/0002）。
+_Avoid_: 把 session 退出、picker 开关当作让位（它们不得改 pane 几何）
 
 **Tab page**:
 一个项目/任务的工作区：一套代码窗口布局。与 session 无关，不用于承载 session。

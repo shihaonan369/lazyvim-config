@@ -1,6 +1,6 @@
 # 终端领地窗口不变量：agent pane 与底部 shell 只放 terminal buffer
 
-日期：2026-09-24，状态：accepted（同日修订：范围从"仅 agent pane"扩大到底部 shell）
+日期：2026-09-24，状态：accepted（同日修订：范围从"仅 agent pane"扩大到底部 shell；2026-09-30 修订：session 生命周期与 pane 几何解耦，见文末）
 
 一切"打开 buffer"的 nvim 语义（`:e`、gf、quickfix、`:buffer`、API `nvim_win_set_buf`）都指向当前窗口；焦点在终端窗口时文件会开进去，顶掉 terminal。snacks picker 的主窗口选择（`main.lua`）本会排除 terminal 窗口，但其兜底分支 `wins[1] or non_float` 在布局中没有合法文件窗口时仍会把 terminal 窗口当目标——agent pane 与底部 shell 都实测复现（后者即"<leader><leader> 后光标没跳过去"的报告），也解释了现象"时好时坏"：主区有文件窗口傍身时 picker 干净，主区空了必中。
 
@@ -19,3 +19,31 @@ pick_win（`<S-CR>`）显式选中 pane 时放行一次：snacks 的包装 actio
 
 - ~~不推广到底部 shell 终端~~ 已修订：底部 shell 同样被 snacks 兜底分支命中（实测复现），且其自动挪移不带走焦点，纳入领地。
 - 不追踪"最近聚焦的主窗口"：目标恒为当前 tabpage 空间左上角的普通窗口，零额外状态。
+
+## 修订 2026-09-30：session 生命周期不得牵动 pane 几何
+
+三个实测缺陷同出"pane 窗口存续期间被隐式路径改写几何"（回归门
+`scripts/test-agent-pane-layout.sh`，headless --clean，假 agent 手法同
+`test-agent-status.sh`）：
+
+- **TermClose 顺序**（"最大化后关 session 回初始宽度"的根因）：原实现先
+  `nvim_buf_delete(force)` 再安顿 pane。bd! 删**正显示中**的 buffer 会连带
+  关窗（Vim 语义，非最后窗口时 pane 失窗），`show_pane` 随即按初始 30% 重建，
+  最大化布局被砸回初始宽度。nvim 0.11/0.12 同现（headless 逐事件复现：
+  WinClosed(pane) → WinNew → 新 pane w60）。修：**先安顿（display 下一个 /
+  hide），最后删死 buffer**——此刻它已不在任何窗口显示，删除不可能再牵动布局。
+- **hide_pane 唯一窗口守卫**：领地独占时删最后一个 session，hide_pane 对唯一
+  窗口 `nvim_win_close` 抛 E444，schedule 回调中断——`S.pane_win` 悬挂、窗口
+  留成被降级的僵尸领地。修：唯一窗口时领地交还（摘 `agent_pane` + `enew` 换出
+  buffer，否则窗口继续渲染后台 session、复活时两窗同显一个 terminal）、指针
+  清空，下次 show_pane 另立新窗（初始宽度，与"pane 重建即回初始宽度"语义一致）。
+- **让位分支按领地身份，不按宽度**：原"宽度 ≥ columns-2 走上方 split"是给
+  全宽底部 shell 设计的宽度代理，最大化 pane 同样命中；而 `set_width(pane, 30%)`
+  在纯水平 frame 里是几何空转（无竖直邻居接盘）——让位发生了、pane 却仍占
+  全宽。修：agent pane 让位恒走 `leftabove vsplit` 回右侧正统槽位（宽度随后
+  让回 30%）；shell 侧维持宽度判分支（全宽上方 split / 侧竖 vsplit）不变。
+- **让位即取消最大化**：让位点顺手清 `vim.w[pane].max_width`（winvar 归
+  keymaps.lua 的 `toggle_max_width` 所有）。否则让位回 30% 后该 winvar 仍存
+  旧值，下次 `<C-S-Right>` 走"还原"分支把 pane resize 回陈旧宽度，而非重新
+  拉满。pane 全灭后隐藏/重建则无此虑：winvar 随窗口存亡自然消失。
+

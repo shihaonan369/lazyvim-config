@@ -22,6 +22,31 @@ local function toggle_max_height()
   end
 end
 
+-- 宽度拉满保持 resize 9999 原语义（其余窗口压到最小，1:1:x）。但兄弟窗被
+-- 挤到 winwidth（默认 20，布局重算的强制加宽底线）以下后，任何一次重算
+-- （picker 关浮窗等）都会把它抬回 20、差额从本窗偷走（"最大化后第一次开
+-- picker 缩 ~10%"）。修法：最大化存续期间把重算底线对齐挤压底线（临时
+-- winwidth=winminwidth——不能写死 1，nvim 强制 winwidth ≥ winminwidth，
+-- E592），还原/窗口消亡时扫描恢复原值——只作用于最大化期间，不动常态
+-- （ADR 0004）。高度无同类问题：winheight 默认即 1。
+local saved_winwidth
+local function sync_winwidth()
+  local maximized = false
+  for _, w in ipairs(vim.api.nvim_list_wins()) do
+    if vim.w[w].max_width then
+      maximized = true
+      break
+    end
+  end
+  if maximized then
+    if not saved_winwidth then saved_winwidth = vim.o.winwidth end
+    vim.o.winwidth = vim.o.winminwidth
+  elseif saved_winwidth then
+    vim.o.winwidth = saved_winwidth
+    saved_winwidth = nil
+  end
+end
+
 local function toggle_max_width()
   if vim.w.max_width then
     vim.cmd(("vertical resize %d"):format(vim.w.max_width))
@@ -30,7 +55,13 @@ local function toggle_max_width()
     vim.w.max_width = vim.fn.winwidth(0)
     vim.cmd("vertical resize 9999")
   end
+  sync_winwidth()
 end
+
+-- 最大化窗口未经 toggle 直接消亡时收走临时 winwidth
+vim.api.nvim_create_autocmd("WinClosed", {
+  callback = function() vim.schedule(sync_winwidth) end,
+})
 
 map("n", "<C-S-Up>", toggle_max_height, { desc = "Toggle Max Window Height", silent = true })
 map("n", "<C-S-Right>", toggle_max_width, { desc = "Toggle Max Window Width", silent = true })

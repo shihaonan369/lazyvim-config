@@ -77,7 +77,15 @@ end
 local function hide_pane()
   if pane_valid() then
     if pane_focused() then vim.cmd("stopinsert") end
-    vim.api.nvim_win_close(S.pane_win, false)
+    if #vim.api.nvim_tabpage_list_wins(vim.api.nvim_win_get_tabpage(S.pane_win)) > 1 then
+      vim.api.nvim_win_close(S.pane_win, false)
+    else
+      -- 唯一窗口关不得（E444）：领地交还、buffer 换出（否则窗口继续渲染
+      -- 后台 session，pane 复活时两窗同显一个 terminal），指针清空，
+      -- 下次 show_pane 另立新窗（初始宽度）
+      vim.w[S.pane_win].agent_pane = nil
+      pcall(vim.api.nvim_win_call, S.pane_win, function() vim.cmd("enew") end)
+    end
   end
   S.pane_win = nil
 end
@@ -125,15 +133,24 @@ local function main_target_win(pane)
   if best then return best end
   local win
   vim.api.nvim_win_call(pane, function()
-    if vim.api.nvim_win_get_width(pane) >= vim.o.columns - 2 then
+    if vim.w[0].agent_pane then
+      -- pane 让位恒走 vsplit 回右侧正统槽位：宽度可以让回 30%（set_width
+      -- 在纯水平 frame 里是几何空转，"上方开窗"分支会让最大化 pane 让位
+      -- 后仍占全宽；按领地身份判分支而非宽度——宽度 ≥ columns-2 也可能是
+      -- 最大化 pane，全宽只是它的瞬时形态）
+      vim.cmd("leftabove vsplit") -- 主区开在左方，保住 pane 居右
+    elseif vim.api.nvim_win_get_width(0) >= vim.o.columns - 2 then
       vim.cmd("aboveleft split") -- 底部 shell 全宽：主区开在上方
     else
-      vim.cmd("leftabove vsplit") -- agent pane 右侧：主区开在左方，保住 pane 居右
+      vim.cmd("leftabove vsplit")
     end
     win = vim.api.nvim_get_current_win()
   end)
   if vim.w[pane].agent_pane then
     vim.api.nvim_win_set_width(pane, math.floor(vim.o.columns * PANE_WIDTH))
+    -- 让位 = 系统取消最大化：清掉 toggle_max_width 的还原值（keymaps.lua
+    -- 拥有该 winvar），否则下次 <C-S-Right> 会还原到陈旧宽度而非重新拉满
+    vim.w[pane].max_width = nil
   end
   return win
 end
@@ -539,9 +556,9 @@ function M.setup()
         local cur_idx = by_buf(args.buf)
         if not cur_idx then return end
         table.remove(S.sessions, cur_idx)
-        if vim.api.nvim_buf_is_valid(args.buf) then
-          pcall(vim.api.nvim_buf_delete, args.buf, { force = true })
-        end
+        -- 先安顿 pane（换下一个 session / 收起），最后才删死 buffer：
+        -- bd! 删正显示中的 buffer 会连带关窗（非最后窗口时），pane 若在此刻
+        -- 失窗，show_pane 会按初始 30% 重建——最大化布局因此被砸回初始宽度
         if was_current then
           if #S.sessions > 0 then
             local nxt = S.sessions[math.min(cur_idx, #S.sessions)]
@@ -554,6 +571,10 @@ function M.setup()
             S.current = nil
             if visible then hide_pane() end
           end
+        end
+        -- 此刻死 buffer 已不在任何窗口显示，删除不可能再牵动布局
+        if vim.api.nvim_buf_is_valid(args.buf) then
+          pcall(vim.api.nvim_buf_delete, args.buf, { force = true })
         end
         emit()
       end)
