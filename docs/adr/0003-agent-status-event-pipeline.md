@@ -121,3 +121,10 @@ statusline 的 agent 段整体隐藏——树已承载全部信息，statusline 
 - spawn 时定名有干净通道 `claude -n <name>`（未接，YAGNI）。
 标签呈现：名字优先，无名回退位置编号 #n（picker 同步修复了 PTYPE_ICON
 未定义全局的旧瑕疵）。
+
+修订补记（同日）：注入序列定为 `\21(Ctrl-U) + "/rename <name>" + \r`——CR
+是 pty 裸模式的回车（\n 不提交）；Ctrl-U 先清 input 草稿，盲通道下无法感知
+或保存用户未提交文字，不清则命令与草稿拼接（改名失败且草稿被毁，两头
+不一致）。取舍：罕见窗口的草稿被牺牲，换 rename 恒定干净执行。名字为
+**单写者**：claude transcript 是唯一权威，nvim 只发命令永不落名（失败 =
+树保持旧名，不假成功）。
