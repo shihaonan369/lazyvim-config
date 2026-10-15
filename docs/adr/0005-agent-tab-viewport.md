@@ -70,3 +70,15 @@ pane；后台联动（spawn 即显、TermClose 顺延/清空、状态变化刷�
   tabline 显示 tab 内 buffer 名已可辨认。
 
 回归：scripts/test-agent-tab.sh（headless --clean，树以 winvar 骨架降级）。
+
+## 修订（2026-10-15）：agent tab 只收 agent 域
+
+用户裁决：agent window（pane/tab）不出现其他 buffer，agent buffer 不出现在
+其他 window（与 ADR 0002 修订的双向守卫同一句誓言的两半）。file buffer 落
+树窗/显示窗（bufferline 点击等入口）→ 挪回来源 tab 主区（return_tab 由
+toggle/TabEnter 记录来路）、视角跟随、污染窗复原（树窗关闭重建，显示窗
+sync）。两个防乒乓细节，缺一即死循环：redirect 可重入——set_buf 落地会再
+触发一轮域守卫（污染窗此刻仍显示该 buffer），前一轮已清退则 win 失效跳过；
+树窗重建须立即换占位 buffer——vsplit 从显示窗继承 agent terminal（BWE 不响、
+sweep 清退成 blank），blank 落进树窗又触发域守卫，无限乒乓。
+回归：scripts/test-agent-tab.lua 判据 4b。

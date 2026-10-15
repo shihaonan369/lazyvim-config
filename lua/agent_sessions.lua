@@ -128,8 +128,11 @@ end
 
 -- 重定向目标：当前 tabpage 最左/最上的普通窗口；领地独占时按几何形态新开主区窗口。
 -- 用窗口坐标而非 winnr 编号：编号跟创建/关闭历史走，不保证等于空间左上角。
+-- 领地三种：agent pane（合法集 = agent session buffer）、底部 shell（任意
+-- terminal）、agent tab 树窗（合法集 = agent_tree 树 buffer，ADR 0005）——
+-- 树窗若不算领地，file buffer 进显示窗时 main_target_win 会把它"救"进树窗
 local function is_territory(win)
-  return vim.w[win].agent_pane == true or vim.w[win].shell_term == true
+  return vim.w[win].agent_pane == true or vim.w[win].shell_term == true or vim.w[win].agent_tree == true
 end
 
 local function main_target_win(pane)
@@ -251,6 +254,11 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
       if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
         -- 注意：vim.w[win] 取的是快照，必须穿透赋值（vim.w[win].x = y）才能写回
         if vim.w[win].agent_pane then
+          -- agent tab 显示窗的入侵由 tab 视口接管（file buffer 挪回来源
+          -- tab，本 tab 内无重定向目标——树窗也是领地，ADR 0005）
+          if alt_viewport and alt_viewport.claims and alt_viewport.claims(win) then
+            return
+          end
           -- 欢迎页豁免：agent tab 空态时右窗合法持有非 terminal buffer，
           -- 是领地"只放 terminal"的唯一例外（docs/adr/0005）
           if not is_agent_buf(buf) and not vim.b[buf].agent_tab_welcome then
@@ -264,6 +272,20 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
             S.follow_buf = buf
             relocate(win, buf, vim.w[win].territory_buf)
           end
+        elseif is_agent_buf(buf)
+          and vim.api.nvim_win_get_config(win).relative == ""
+        then
+          -- 反向入侵：agent session buffer 落进非领地窗口（split 克隆、
+          -- :buffer 等，实际触发路径不明——机制层兜底、入口无关，与正向
+          -- 守卫同一哲学）。editor 窗口不收留 session buffer：交还空白，
+          -- session 归视口。触发命令的收尾会改写窗口 buffer，清退须整段
+          -- 命令出栈后延迟执行（同 relocate 的时序）。shell 领地合法集是
+          -- 任意 terminal，agent buffer 落底部 shell 窗口不算入侵
+          vim.schedule(function()
+            if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
+              pcall(vim.api.nvim_win_call, win, function() vim.cmd("enew") end)
+            end
+          end)
         elseif
           is_term
           and not vim.b[buf].agent_session
@@ -285,6 +307,30 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
       end
     end
   end,
+})
+
+-- 反向入侵清查：agent session buffer 只许住在领地窗口。split 克隆、:buffer
+-- 等"buffer 已在别窗显示"的路径不触发 BufWinEnter（实测），靠 WinNew/
+-- WinEnter/BufEnter 兜底全窗扫描（入口无关）。清退延后出栈执行（同 relocate）
+local function sweep_strays()
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if vim.api.nvim_win_is_valid(win)
+      and vim.api.nvim_win_get_config(win).relative == ""
+      and not is_territory(win)
+      and is_agent_buf(vim.api.nvim_win_get_buf(win))
+    then
+      local buf = vim.api.nvim_win_get_buf(win)
+      vim.schedule(function()
+        if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
+          pcall(vim.api.nvim_win_call, win, function() vim.cmd("enew") end)
+        end
+      end)
+    end
+  end
+end
+vim.api.nvim_create_autocmd({ "WinNew", "WinEnter", "BufEnter" }, {
+  group = invariant,
+  callback = sweep_strays,
 })
 
 local function display(id, focus)

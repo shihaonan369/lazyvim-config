@@ -162,5 +162,33 @@ vim.wait(2000, function()
   return A.count() == 0
 end)
 
+-- 判据 6（ADR 0002 修订）：反向入侵——agent buffer 不出领地窗。
+-- split 克隆 pane（w: 变量不继承、buffer 已在别窗显示不触发 BWE——实测），
+-- 泄漏窗靠 WinNew/WinEnter/BufEnter 清查兜底回收
+A.claude_open("/bin/sleep 600", {}, false)
+vim.wait(800, function()
+  return false
+end)
+local pb6 = pane_win()
+local clone_buf = A.current_buf()
+vim.api.nvim_win_call(pb6, function() vim.cmd("split") end)
+vim.wait(800, function()
+  return false
+end)
+local stray = 0
+for _, w in ipairs(vim.api.nvim_list_wins()) do
+  if vim.api.nvim_win_get_buf(w) == clone_buf
+    and not vim.w[w].agent_pane and not vim.w[w].shell_term and not vim.w[w].agent_tree
+  then
+    stray = stray + 1
+  end
+end
+check("split 克隆的 agent buffer 已被清退", stray == 0)
+check("pane 自身不受清退影响", vim.api.nvim_win_get_buf(pb6) == clone_buf)
+A.delete(A.current_id())
+vim.wait(2000, function()
+  return A.count() == 0
+end)
+
 print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
 vim.cmd(#fails == 0 and "qa!" or "cq")

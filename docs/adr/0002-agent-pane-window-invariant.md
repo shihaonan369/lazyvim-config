@@ -47,3 +47,16 @@ pick_win（`<S-CR>`）显式选中 pane 时放行一次：snacks 的包装 actio
   旧值，下次 `<C-S-Right>` 走"还原"分支把 pane resize 回陈旧宽度，而非重新
   拉满。pane 全灭后隐藏/重建则无此虑：winvar 随窗口存亡自然消失。
 
+
+## 修订（2026-10-15）：不变量双向化
+
+领地守卫原本只守一个方向（非 agent buffer 不进 agent pane）。实测暴露反例：
+agent buffer 出现在 editor 窗口——split 克隆 pane（w: 变量不继承，buffer 已在
+别窗显示不触发 BufWinEnter），正向守卫与 BWE 都无从得知。修：反向清查
+sweep_strays 挂 WinNew/WinEnter/BufEnter 全窗扫描，agent session buffer 落进
+非领地窗即清退（enew），入口无关。领地同时扩为三种：agent pane（合法集 =
+session buffer）、底部 shell（任意 terminal）、agent tab 树窗（树 buffer，
+winvar agent_tree）——树窗不算领地时，file buffer 进显示窗会被
+main_target_win"救"进树窗（ADR 0005 的实测反例）。agent tab 显示窗的入侵
+由 tab 视口接管（alt_viewport.claims，file buffer 挪回来源 tab，ADR 0005）。
+回归：scripts/test-agent-pane-layout.lua 判据 6。

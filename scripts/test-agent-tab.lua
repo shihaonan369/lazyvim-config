@@ -131,6 +131,32 @@ A.toggle() -- agent tab 内应 no-op
 quiesce()
 check("tab 内 toggle pane 为 no-op", #tab_wins() == wins_before and not A.pane_visible())
 
+-- 判据 4b（ADR 0005）：域守卫——file buffer 落树窗，挪回来源 tab、树复原、
+-- 视角跟随（agent tab 只收 agent 域）
+local fbuf = vim.api.nvim_create_buf(false, true)
+vim.api.nvim_buf_set_name(fbuf, "agent-tab-stray.txt")
+local tw0
+for _, w in ipairs(tab_wins()) do
+  if vim.w[w].agent_tree == true then tw0 = w end
+end
+vim.api.nvim_win_set_buf(tw0, fbuf)
+quiesce(800)
+local stray_tab
+for _, t in ipairs(vim.api.nvim_list_tabpages()) do
+  for _, w in ipairs(vim.api.nvim_tabpage_list_wins(t)) do
+    if vim.api.nvim_win_get_buf(w) == fbuf then stray_tab = t end
+  end
+end
+check("file buffer 已挪出 agent tab", stray_tab ~= nil and stray_tab ~= tab)
+local tree_kept = false
+for _, w in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
+  if vim.w[w].agent_tree == true then tree_kept = true end
+end
+check("树窗已复原", tree_kept and #vim.api.nvim_tabpage_list_wins(tab) == 2)
+check("视角已跟到来源 tab", vim.api.nvim_get_current_tabpage() == 1)
+vim.api.nvim_set_current_tabpage(tab) -- 回 tab 继续后续判据
+quiesce()
+
 -- 判据 5：TermClose 顺延/清空、空壳保留、离开恢复映射 -------------------
 A.delete(opened_id) -- 当前，顺延首开 session
 check("删当前后顺延", vim.wait(2000, function()
