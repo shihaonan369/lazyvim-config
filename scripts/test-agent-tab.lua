@@ -63,6 +63,13 @@ check("预置 session 已清", vim.wait(2000, function()
 end))
 quiesce()
 
+-- 判据 1c（ADR 0005）：<leader>as 在 tab 内撤除、离开恢复（捕获-重放保真，
+-- 以假映射驱动机制——真身定义在各 agent spec，--clean 不加载）。必须在建 tab
+-- 前就位，TabEnter 才有东西可捕获
+local fake_fired = false
+vim.keymap.set("n", "<leader>as", function() fake_fired = true end, { desc = "fake smart add" })
+check("假 <leader>as 已就位", vim.fn.maparg("<leader>as", "n") ~= "")
+
 -- 判据 1：末尾建 tab、首开自动新建、左树右显示窗 ------------------------
 check("<leader>at 已映射", type((vim.fn.maparg("<leader>at", "n", false, true)).callback) == "function")
 press_at()
@@ -82,6 +89,8 @@ for _, w in ipairs(tab_wins()) do
 end
 check("左窗树身份（winvar 骨架）", tree_marked)
 check("tab 内 <leader>at 已撤（which-key 不列）", vim.fn.maparg("<leader>at", "n") == "")
+check("tab 内 <leader>as 已撤（捕获-重放机制）", vim.fn.maparg("<leader>as", "n") == "")
+check("tab 内 bufferline 隐藏（showtabline=0）", vim.o.showtabline == 0)
 
 -- 判据 1b：<leader>aa 在 tab 内 = 树 toggle --------------------------------
 A.picker() -- agent tab 内改道：关树
@@ -192,6 +201,13 @@ check("tab 空壳保留", T.tab() == tab)
 vim.cmd("tabnext 1")
 quiesce()
 check("离开后 <leader>at 恢复", type((vim.fn.maparg("<leader>at", "n", false, true)).callback) == "function")
+check("离开后 <leader>as 恢复且回调保真", (function()
+  local m = vim.fn.maparg("<leader>as", "n", false, true)
+  if type(m) ~= "table" or m.callback == nil then return false end
+  m.callback()
+  return fake_fired
+end)())
+check("离开后 showtabline 恢复", vim.o.showtabline ~= 0)
 press_at() -- 幂等：存在即切（末尾那个）
 quiesce()
 check("再次 <leader>at 存在即切", vim.api.nvim_get_current_tabpage() == T.tab())

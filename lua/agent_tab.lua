@@ -248,6 +248,58 @@ local function on_buf_enter(args)
   end
 end
 
+-- agent tab 内撤除的键（离开恢复）：<leader>at 本体 + <leader>as——Smart Add
+-- 的"把文件上下文加给 agent"在 tab 里语义落空（用户裁决 2026-10-15）。as 定义
+-- 分散在三个 agent spec 且各异（expr/多 mode），首次撤除前捕获原映射、
+-- 离开时原样重放
+local hidden_keys = {} -- [lhs] = { [mode] = maparg dict }
+
+local function hide_keys()
+  for _, lhs in ipairs({ "<leader>as" }) do
+    hidden_keys[lhs] = hidden_keys[lhs] or {}
+    for _, mode in ipairs({ "n", "v", "x" }) do
+      local m = vim.fn.maparg(lhs, mode, false, true)
+      if type(m) == "table" and m.callback ~= nil and hidden_keys[lhs][mode] == nil then
+        hidden_keys[lhs][mode] = m
+      end
+      pcall(vim.keymap.del, mode, lhs)
+    end
+  end
+end
+
+-- agent tab 内隐藏 bufferline（文件 buffer 标签在 agent 域无意义，用户裁决
+-- 2026-10-15）。bufferline 走 'tabline' 渲染，showtabline=0 整条隐藏；
+-- 原值捕获-恢复
+local saved_showtabline = nil
+
+local function hide_tabline()
+  saved_showtabline = saved_showtabline or vim.o.showtabline
+  vim.o.showtabline = 0
+  vim.cmd("redrawtabline")
+end
+
+local function restore_tabline()
+  if saved_showtabline then
+    vim.o.showtabline = saved_showtabline
+    vim.cmd("redrawtabline")
+  end
+end
+
+local function restore_keys()
+  for lhs, mods in pairs(hidden_keys) do
+    for mode, m in pairs(mods) do
+      if vim.fn.maparg(lhs, mode) == "" then
+        vim.keymap.set(mode, lhs, m.callback, {
+          desc = m.desc,
+          expr = m.expr == 1,
+          silent = m.silent == 1,
+          nowait = m.nowait == 1,
+        })
+      end
+    end
+  end
+end
+
 -- <leader>at：agent tab 内撤映射（no-op 且 which-key 不列不可用键），离开恢复
 local function map_at()
   vim.keymap.set("n", "<leader>at", function() M.toggle() end, { desc = "Agent tab", silent = true })
@@ -270,6 +322,8 @@ function M.toggle()
   -- TabEnter 在 $tabnew 时已先于 marker 写入触发过，创建路径补撤（切换路径
   -- 由 TabEnter 钩子负责）
   pcall(vim.keymap.del, "n", "<leader>at")
+  hide_keys()
+  hide_tabline() -- TabEnter 在 marker 写入前已扑空过，创建路径补齐（同 at 撤键竞态）
   local tree_base = vim.api.nvim_tabpage_list_wins(new_tab)[1]
   local dw = build_display(new_tab, tree_base)
   -- 首开无 agent：直接新建一个（用户裁决，替代欢迎页）；有则显示 current
@@ -322,15 +376,23 @@ function M.setup()
     callback = function()
       if M.active() then
         pcall(vim.keymap.del, "n", "<leader>at")
+        hide_keys()
+        hide_tabline()
         local tab = vim.api.nvim_get_current_tabpage()
         if last_tab and last_tab ~= tab then vim.t[tab].return_tab = last_tab end
         vim.schedule(function() ensure_tree(tab) end)
-      elseif vim.fn.maparg("<leader>at", "n") == "" then
-        map_at()
+      else
+        if vim.fn.maparg("<leader>at", "n") == "" then map_at() end
+        restore_keys()
+        restore_tabline()
       end
     end,
   })
-  if M.active() then pcall(vim.keymap.del, "n", "<leader>at") end
+  if M.active() then
+    pcall(vim.keymap.del, "n", "<leader>at")
+    hide_keys()
+    hide_tabline()
+  end
 end
 
 return M
