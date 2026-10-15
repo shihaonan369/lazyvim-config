@@ -77,6 +77,8 @@ local function build_display(tab, base)
     win = vim.api.nvim_get_current_win()
   end)
   vim.w[win].agent_pane = true -- 领地身份：ADR 0002 守卫自动覆盖（ADR 0005）
+  vim.wo[win].number = false -- terminal 显示窗不吃全局行号（LazyVim 开着）
+  vim.wo[win].relativenumber = false
   vim.t[tab].agent_display = win
   return win
 end

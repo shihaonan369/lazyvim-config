@@ -60,3 +60,12 @@ winvar agent_tree）——树窗不算领地时，file buffer 进显示窗会被
 main_target_win"救"进树窗（ADR 0005 的实测反例）。agent tab 显示窗的入侵
 由 tab 视口接管（alt_viewport.claims，file buffer 挪回来源 tab，ADR 0005）。
 回归：scripts/test-agent-pane-layout.lua 判据 6。
+
+## 修订（2026-10-15，同日第三条）：显示窗 terminal 选项不赌 TermOpen 时机
+
+行号回归（pane 后建时出现 number/relativenumber）：nvim 内建 defaults
+（runtime/lua/vim/_core/defaults.lua 的 TermOpen autocmd）把 nonumber 打在
+`vim.wo[0][0]`——**termopen 时刻的当前窗**上。旧世界 termopen 恒在 pane 窗
+发生；agent tab 落地后 pane 可为已存 session 后建，该窗从未 termopen，无人
+关行号，又从开着 number 的主窗 vsplit 继承。修：show_pane / build_display
+对显示窗显式 apply（number/relativenumber=false），与任何时机无关。

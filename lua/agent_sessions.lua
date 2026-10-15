@@ -76,6 +76,14 @@ end
 -- 相同）。session 池不感知具体视口，display 只按"当前 tab 是否备用视口"路由
 local alt_viewport = nil
 
+-- 领地显示窗的 terminal 窗口选项：LazyVim 全局开 number/relativenumber，
+-- 显示窗无论何时建（为已存 session 后建、vsplit 继承）都必须显式关掉——
+-- 不依赖任何 TermOpen/BWE 时机上的隐式关闭者（机制层兜底，ADR 0002）
+local function apply_term_winopts(win)
+  vim.wo[win].number = false
+  vim.wo[win].relativenumber = false
+end
+
 local function show_pane()
   if not pane_valid() then
     local width = math.floor(vim.o.columns * PANE_WIDTH)
@@ -83,6 +91,7 @@ local function show_pane()
     S.pane_win = vim.api.nvim_get_current_win()
     vim.w[S.pane_win].agent_pane = true -- 窗口身份标记，winvar 随窗口存亡（docs/adr/0002）
   end
+  apply_term_winopts(S.pane_win)
   local _, cur = by_id(S.current)
   if cur then vim.api.nvim_win_set_buf(S.pane_win, cur.bufnr) end
 end
