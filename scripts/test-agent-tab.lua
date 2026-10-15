@@ -89,6 +89,14 @@ for _, w in ipairs(tab_wins()) do
   if vim.w[w].agent_tree == true then tree_marked = true end
 end
 check("左窗树身份（winvar 骨架）", tree_marked)
+-- 判据 1d：树宽稳定（用户裁决）——wincmd =/equalalways 不改 40
+vim.cmd("wincmd =")
+quiesce()
+local tw_w
+for _, w in ipairs(tab_wins()) do
+  if vim.w[w].agent_tree == true then tw_w = w end
+end
+check("wincmd = 后树宽仍为 40", vim.api.nvim_win_get_width(tw_w) == 40)
 check("tab 内 <leader>at 已撤（which-key 不列）", vim.fn.maparg("<leader>at", "n") == "")
 check("tab 内 <leader>as 已撤（捕获-重放机制）", vim.fn.maparg("<leader>as", "n") == "")
 check("tab 内不动 showtabline（buffer 标签由 custom_filter 滤）", vim.o.showtabline == tabline_before)

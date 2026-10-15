@@ -105,6 +105,8 @@ local function ensure_tree(tab)
     -- 守卫，两者乒乓成死循环。占位 buffer 本就在域白名单里
     vim.api.nvim_win_set_buf(win, blank_buf())
     vim.api.nvim_win_set_width(win, TREE_WIDTH)
+    vim.wo[win].winfixwidth = true -- 宽度稳定（用户裁决 2026-10-15）：equalalways/
+    -- wincmd =/插件 vsplit 舞步都动不了 40；主动 resize（C-S-Right）不认 fix，最大化语义保留
     vim.api.nvim_set_current_win(win)
     open_tree()
   end
@@ -319,6 +321,7 @@ function M.toggle()
   end
   vim.w[tree_base].agent_tree = true
   vim.api.nvim_win_set_width(tree_base, TREE_WIDTH)
+  vim.wo[tree_base].winfixwidth = true -- 同 ensure_tree：宽度稳定，只有手动 resize 可变
   vim.api.nvim_set_current_win(tree_base)
   open_tree()
   focus_display(dw) -- 焦点交给显示窗（新建即对话）
