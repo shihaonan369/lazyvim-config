@@ -103,5 +103,39 @@ check("删除后无睡觉/空心残留",
   not A.status():find(asleep, 1, true) and not A.status():find(confused_o, 1, true)
   and not A.status():find(outline, 1, true))
 
+-- 名字同步（docs/adr/0003 修订）：SessionStart 上报 → 登记时读 custom-title.json
+-- 兜住 resume 已命名；运行中 /rename 追加 custom-title 行 → luv 增量捕捉。
+-- 剩下的唯一 session（删除后 session1 转正）用 tag1 归因
+local tdir = vim.fn.stdpath("run") .. "/agent-rename-test"
+vim.fn.mkdir(tdir, "p")
+local tpath = tdir .. "/sid42.jsonl"
+do
+  local fh = assert(io.open(tpath, "w"))
+  fh:write('{"type":"user","message":"hi"}\n')
+  fh:close()
+end
+vim.fn.mkdir(tdir .. "/sid42", "p")
+vim.fn.writefile({ '{"customTitle":"旧名字"}' }, tdir .. "/sid42/custom-title.json")
+do
+  local fh = assert(io.open(file, "a"))
+  fh:write(string.format('{"tag":"%s","sid":"sid42","transcript":"%s"}\n', tag1, tpath))
+  fh:close()
+end
+check("登记时读 custom-title.json（resume 命名）", vim.wait(2000, function()
+  return A.list()[1] and A.list()[1].name == "旧名字"
+end))
+do
+  local fh = assert(io.open(tpath, "a"))
+  fh:write('{"type":"custom-title","customTitle":"新名字","sessionId":"sid42"}\n')
+  fh:close()
+end
+check("/rename → transcript 增量同步", vim.wait(2000, function()
+  return A.list()[1] and A.list()[1].name == "新名字"
+end))
+
+-- nvim 侧改名：本地即刻生效（PTY 注入对假 agent 无害——/bin/sleep 不读 stdin）
+A.rename(A.list()[1].id, "本地改名")
+check("nvim 侧 r 改名本地生效", A.list()[1].name == "本地改名")
+
 print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
 vim.cmd(#fails == 0 and "qa!" or "cq")

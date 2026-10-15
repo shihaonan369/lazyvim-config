@@ -29,7 +29,6 @@ return {
           ["gy"] = "none",
           ["c"] = "none",
           ["m"] = "none",
-          ["r"] = "none",
           ["A"] = "none",
           ["w"] = "none",
           ["<C-s>"] = "none",

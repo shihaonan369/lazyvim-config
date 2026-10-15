@@ -409,13 +409,73 @@ local function status_file()
   return vim.fn.stdpath("run") .. "/agent-status.jsonl"
 end
 
+-- claude /rename → 名字同步（docs/adr/0003 修订）：SessionStart hook 把
+-- transcript 路径报进邮箱；这里 luv 盯 transcript 增量，扫 {"type":
+-- "custom-title","customTitle":…} 行（claude 内部格式，失效静默降级）；
+-- 登记时先读同目录 <sid>/custom-title.json 兜住 resume 已命名场景。
+-- 全程事件驱动零轮询，与状态邮箱同一风格
+local function name_apply(s, title)
+  if type(title) == "string" and title ~= "" and title ~= s.name then
+    s.name = title
+    emit()
+  end
+end
+
+local function watch_transcript(s, transcript)
+  local sid = vim.fn.fnamemodify(transcript, ":t:r")
+  local ct = vim.fn.fnamemodify(transcript, ":h") .. "/" .. sid .. "/custom-title.json"
+  local fd = vim.uv.fs_open(ct, "r", 384)
+  if fd then
+    local stat = vim.uv.fs_fstat(fd)
+    local data = stat and stat.size > 0 and vim.uv.fs_read(fd, stat.size, 0)
+    vim.uv.fs_close(fd)
+    local ok, obj = pcall(vim.json.decode, data or "")
+    if ok and type(obj) == "table" then name_apply(s, obj.customTitle) end
+  end
+  if s.tw_handle then
+    s.tw_handle:stop()
+    s.tw_handle:close()
+  end
+  s.tw_off, s.tw_partial = 0, ""
+  s.tw_handle = vim.uv.new_fs_event()
+  s.tw_handle:start(transcript, {}, vim.schedule_wrap(function()
+    local fh = vim.uv.fs_open(transcript, "r", 384)
+    if not fh then return end
+    local stat = vim.uv.fs_fstat(fh)
+    if stat then
+      if stat.size < s.tw_off then s.tw_off, s.tw_partial = 0, "" end -- 截断兜底
+      if stat.size > s.tw_off then
+        local data = vim.uv.fs_read(fh, stat.size - s.tw_off, s.tw_off)
+        if data then
+          s.tw_off = s.tw_off + #data
+          s.tw_partial = s.tw_partial .. data
+          while true do
+            local nl = s.tw_partial:find("\n", 1, true)
+            if not nl then break end
+            local line = s.tw_partial:sub(1, nl - 1)
+            s.tw_partial = s.tw_partial:sub(nl + 1)
+            if line:find('"custom-title"', 1, true) then
+              local ok, ev = pcall(vim.json.decode, line)
+              if ok and type(ev) == "table" then name_apply(s, ev.customTitle) end
+            end
+          end
+        end
+      end
+    end
+    vim.uv.fs_close(fh)
+  end))
+end
+
 local function status_apply(line)
   local ok, ev = pcall(vim.json.decode, line)
   if not ok or type(ev) ~= "table" then return end
-  if not STATE_HL[ev.state] then return end -- 只认统一状态词表
   for _, s in ipairs(S.sessions) do
     if s.tag == ev.tag then
-      s.state = ev.state
+      if STATE_HL[ev.state] then -- 只认统一状态词表
+        s.state = ev.state
+      elseif ev.sid and ev.transcript then -- SessionStart 身份上报（名字同步）
+        watch_transcript(s, ev.transcript)
+      end
       return
     end
   end
@@ -652,7 +712,11 @@ function M.setup()
       vim.schedule(function()
         local cur_idx = by_buf(args.buf)
         if not cur_idx then return end
-        table.remove(S.sessions, cur_idx)
+        local dead = table.remove(S.sessions, cur_idx)
+        if dead and dead.tw_handle then -- transcript 名字监听随 session 消亡
+          dead.tw_handle:stop()
+          dead.tw_handle:close()
+        end
         -- 先安顿 pane（换下一个 session / 收起），最后才删死 buffer：
         -- bd! 删正显示中的 buffer 会连带关窗（非最后窗口时），pane 若在此刻
         -- 失窗，show_pane 会按初始 30% 重建——最大化布局因此被砸回初始宽度
@@ -805,9 +869,25 @@ end
 function M.list()
   local out = {}
   for i, s in ipairs(S.sessions) do
-    out[i] = { id = s.id, state = s.state, current = s.id == S.current, pos = i }
+    out[i] = { id = s.id, state = s.state, name = s.name, current = s.id == S.current, pos = i }
   end
   return out
+end
+
+-- 重命名 session（树内 r）：nvim 侧即刻生效；claude 侧 PTY 注入 /rename——
+-- 与 M.send 同通道同语义（回合中排队、与手输竞争）；claude 侧改名回流的
+-- custom-title 行与本地同值，watcher 幂等不回环。codex/opencode 无注入通道，
+-- 暂只改本地名（TODO：各家斜杠命令确认后补）
+function M.rename(id, name)
+  local _, s = by_id(id)
+  if not s or not name or name == "" then return end
+  name = name:gsub("%c", "") -- 控制字符清掉（claude 侧也会净化，双保险）
+  s.name = name
+  if S.ptype == "claude" then
+    local chan = vim.b[s.bufnr].terminal_job_id
+    if chan then vim.api.nvim_chan_send(chan, "/rename " .. name .. "\n") end
+  end
+  emit()
 end
 
 function M.current_id()
@@ -855,7 +935,8 @@ function M.picker()
   end
   local items = { { text = "+ new session", is_new = true } }
   for i, s in ipairs(S.sessions) do
-    table.insert(items, { text = string.format("%s #%d", PTYPE_ICON, i), id = s.id, bufnr = s.bufnr })
+    -- 名字优先，无名回退位置编号 #n（词汇表）；原 PTYPE_ICON 是未定义全局
+    table.insert(items, { text = s.name or ("#" .. i), id = s.id, bufnr = s.bufnr })
   end
 
   Snacks.picker({

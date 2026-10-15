@@ -130,6 +130,13 @@ for _, w in ipairs(tab_wins()) do
 end
 check("主 tab pane 已开", pane_w ~= nil and A.pane_visible())
 check("pane 显示同一 current", vim.api.nvim_win_get_buf(pane_w) == A.buf_of(auto_id))
+-- rename（ADR 0003 修订）：本地即刻生效；标签名优先于 #n 属渲染侧，此处断言快照
+A.rename(auto_id, "树外的名字")
+check("r 改名进入视口快照", (function()
+  for _, it in ipairs(A.list()) do
+    if it.id == auto_id then return it.name == "树外的名字" end
+  end
+end)())
 vim.cmd("tabnext 2") -- 回 agent tab 选中另一个：主 pane 跨 tab 同步
 A.select(opened_id, false)
 quiesce()

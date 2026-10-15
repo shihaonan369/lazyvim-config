@@ -105,3 +105,19 @@ export const AgentStatusMirror = async () => ({
 即醒"的 showing() 判据，被用户纠正后拆除（记此防反复）。agent tab 内
 statusline 的 agent 段整体隐藏——树已承载全部信息，statusline 只服务此刻
 看不到的人。
+
+## 修订（2026-10-15，同日第三条）：session 名字与双向同步
+
+名字通道（claude 先行，codex/opencode 暂本地名 TODO）：
+- **claude → nvim（事件驱动零轮询）**：SessionStart hook（scripts/agent-rename-hook.sh，
+  jq 一行，缺依赖/缺字段静默降级）把 session_id+transcript_path 报进既有邮箱；
+  nvim 侧 luv 盯 transcript 增量，扫 {"type":"custom-title"} 行取名——登记时
+  先读 <sid>/custom-title.json 兜住 resume 已命名。custom-title 是 claude 内部
+  格式（文档明言随版本变），失效即名字同步静默降级，状态管线不受牵连。
+- **nvim → claude**：运行中 session 无文档化外部改名通道（inbox socket 只投
+  文本不执行命令、agents 只读、云回路不适用），PTY 注入 `/rename <name>`
+  是唯一路径——与 M.send（Smart Add）同通道同语义（回合中排队、与手输竞争），
+  有先例故可接受；claude 侧改名回流的 custom-title 行与本地同值，幂等不回环。
+- spawn 时定名有干净通道 `claude -n <name>`（未接，YAGNI）。
+标签呈现：名字优先，无名回退位置编号 #n（picker 同步修复了 PTYPE_ICON
+未定义全局的旧瑕疵）。

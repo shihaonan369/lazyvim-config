@@ -12,6 +12,9 @@
     ],
     "PermissionRequest": [
       { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh attention" } ] }
+    ],
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-rename-hook.sh" } ] }
     ]
   }
 }

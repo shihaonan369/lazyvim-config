@@ -23,6 +23,7 @@ M.default_config = {
       ["<2-LeftMouse>"] = "agent_open",
       ["a"] = "agent_new",
       ["d"] = "agent_delete",
+      ["r"] = "agent_rename", -- 重命名（claude 双向同步；codex/opencode 暂本地，TODO）
       -- q 必须接管：neo-tree 自带 close_window 在 position=current 窗口里
       -- 只清 buffer 不关窗，留下空 editor 窗且 agent_tree winvar 还挂着，
       -- ensure_tree 误判树在、永远不重建（实测踩过）；再开走 <leader>aa
@@ -85,6 +86,21 @@ M.commands = vim.tbl_extend("keep", {
     if vim.fn.confirm("删除 agent session #" .. n .. "?", "&Yes\n&No") ~= 1 then return end
     agent.delete(e.id) -- 移除与清理走 TermClose 既有管线
   end,
+  agent_rename = function(state)
+    local node = state.tree:get_node()
+    local e = node and node.extra or {}
+    if e.kind ~= "session" then return end
+    local cur_name
+    for _, it in ipairs(agent.list()) do
+      if it.id == e.id then cur_name = it.name end
+    end
+    vim.ui.input({
+      prompt = "Rename agent session #" .. (e.pos or "?") .. ": ",
+      default = cur_name or "",
+    }, function(input)
+      if input and input ~= "" then agent.rename(e.id, input) end
+    end)
+  end,
   refresh = function()
     M.refresh()
   end,
@@ -108,9 +124,9 @@ M.navigate = function(state)
   for _, s in ipairs(agent.list()) do
     items[#items + 1] = {
       id = "session:" .. s.id,
-      name = "#" .. s.pos,
+      name = s.name or ("#" .. s.pos), -- 名字优先，无名回退位置编号（词汇表）
       type = "agent_session",
-      extra = { kind = "session", id = s.id, pos = s.pos, state = s.state, current = s.current },
+      extra = { kind = "session", id = s.id, pos = s.pos, state = s.state, current = s.current, name = s.name },
     }
   end
   renderer.show_nodes(items, state)

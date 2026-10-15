@@ -9,7 +9,7 @@
 _Avoid_: AI、assistant、codex（用具体类型名指代时除外）
 
 **Session**:
-一个独立运行的 agent 进程，带各自的对话历史，各自执行一个任务。多个 session 可以同时存活，称呼用其在存活列表中的位置编号（如 claude #2），前面的 session 退出后编号顺延，不手动命名。
+一个独立运行的 agent 进程，带各自的对话历史，各自执行一个任务。多个 session 可以同时存活，可命名（claude 侧 /rename 与 nvim 侧树内 r 双向同步，docs/adr/0003 修订）；未命名时称呼用其在存活列表中的位置编号（如 claude #2），前面的 session 退出后编号顺延，名字不随编号变。
 _Avoid_: terminal、buffer、instance、tab
 
 **Session 状态（working / idle / attention）**:
