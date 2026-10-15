@@ -118,7 +118,10 @@ local function hide_pane()
       -- 后台 session，pane 复活时两窗同显一个 terminal），指针清空，
       -- 下次 show_pane 另立新窗（初始宽度）
       vim.w[S.pane_win].agent_pane = nil
-      pcall(vim.api.nvim_win_call, S.pane_win, function() vim.cmd("enew") end)
+      pcall(vim.api.nvim_win_call, S.pane_win, function()
+        vim.cmd("enew")
+        vim.bo.buflisted = false -- 交还的领地窗不留导航目标
+      end)
     end
   end
   S.pane_win = nil
@@ -343,7 +346,10 @@ local function sweep_strays()
       local buf = vim.api.nvim_win_get_buf(win)
       vim.schedule(function()
         if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
-          pcall(vim.api.nvim_win_call, win, function() vim.cmd("enew") end)
+          pcall(vim.api.nvim_win_call, win, function()
+            vim.cmd("enew")
+            vim.bo.buflisted = false -- 清退窗不留导航目标，别污染 buffer 计数
+          end)
         end
       end)
     end

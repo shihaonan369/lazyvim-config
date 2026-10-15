@@ -10,6 +10,10 @@ return {
         if ok and at.active() then return false end
         return true
       end,
+      -- 显隐判定交给 config/autocmds.lua 的 tabline_visibility（buffer 数与
+      -- tab 数独立计算）：bufferline 自家的 toggle 只数 buffer，单 buffer +
+      -- 多 tab 会把装着 tab 标签的整条砍掉
+      auto_toggle_bufferline = false,
     },
   },
 }

@@ -302,6 +302,7 @@ function M.toggle()
     return
   end
   vim.cmd("$tabnew") -- 末尾创建：g1-g9 位置键零扰动（ADR 0005）
+  vim.bo.buflisted = false -- 树位 [No Name] 不算导航目标：listed 会污染 bufferline/tabline 的 buffer 计数
   local new_tab = vim.api.nvim_get_current_tabpage()
   vim.t[new_tab].agent_tab = true
   -- TabEnter 在 $tabnew 时已先于 marker 写入触发过，创建路径补撤（切换路径
