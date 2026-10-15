@@ -77,8 +77,14 @@ local function build_display(tab, base)
     win = vim.api.nvim_get_current_win()
   end)
   vim.w[win].agent_pane = true -- 领地身份：ADR 0002 守卫自动覆盖（ADR 0005）
-  vim.wo[win].number = false -- terminal 显示窗不吃全局行号（LazyVim 开着）
+  -- terminal 选项整集对齐 nvim TermOpen defaults（行号/signcolumn 空白列/
+  -- foldcolumn 灰 + 都源于 vsplit 继承 LazyVim 全局值，见 apply_term_winopts）
+  vim.wo[win].wrap = false
+  vim.wo[win].list = false
+  vim.wo[win].number = false
   vim.wo[win].relativenumber = false
+  vim.wo[win].signcolumn = "no"
+  vim.wo[win].foldcolumn = "0"
   pcall(vim.api.nvim_win_call, win, function() vim.cmd("clearjumps") end) -- 见 apply_term_winopts：jumplist 毒条目
   vim.t[tab].agent_display = win
   return win

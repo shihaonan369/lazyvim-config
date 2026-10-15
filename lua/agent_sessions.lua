@@ -76,12 +76,17 @@ end
 -- 相同）。session 池不感知具体视口，display 只按"当前 tab 是否备用视口"路由
 local alt_viewport = nil
 
--- 领地显示窗的 terminal 窗口选项：LazyVim 全局开 number/relativenumber，
--- 显示窗无论何时建（为已存 session 后建、vsplit 继承）都必须显式关掉——
--- 不依赖任何 TermOpen/BWE 时机上的隐式关闭者（机制层兜底，ADR 0002）
+-- 领地显示窗的 terminal 窗口选项：与 nvim 内建 defaults 的 TermOpen 选项集
+-- 逐项对齐（wrap/list/number/relativenumber/signcolumn/foldcolumn）——显示窗
+-- 无论何时建（为已存 session 后建、vsplit 继承 LazyVim 的 signcolumn="yes"
+-- 等）都必须补齐，不能依赖 TermOpen 时机（ADR 0002 修订）
 local function apply_term_winopts(win)
+  vim.wo[win].wrap = false
+  vim.wo[win].list = false
   vim.wo[win].number = false
   vim.wo[win].relativenumber = false
+  vim.wo[win].signcolumn = "no"
+  vim.wo[win].foldcolumn = "0"
   -- 终端显示窗不留 jumplist：split 会复制主窗的跳转历史，termnormal 里
   -- C-o 会沿毒条目把 file/agent buffer 走进显示窗（用户实测的泄漏入口）。
   -- 终端窗不需要导航历史，一次清空、按窗只做一次
