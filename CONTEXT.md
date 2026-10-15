@@ -21,7 +21,7 @@ _Avoid_: running/completed/failed（用统一状态词）、把退出当状态
 _Avoid_: agent window、sidebar（左侧文件栏才是 sidebar）
 
 **Agent tab**:
-session 池的专属工作区 tab（左 agent list + 右显示窗，docs/adr/0005），与 Agent pane 并列的视口，各有分工：编辑为主用 pane，agent 为主用 tab。`<leader>at` 幂等切换（不存在则建于末尾、存在则切入，已在其中 no-op 且该键不显示）；空态保留 tab 壳（欢迎页）。
+session 池的专属工作区 tab（左 agent list + 右显示窗，docs/adr/0005），与 Agent pane 并列的视口，各有分工：编辑为主用 pane，agent 为主用 tab。`<leader>at` 幂等切换（不存在则建于末尾、存在则切入，已在其中 no-op 且该键不显示）；首开无 session 直接新建一个；空态保留 tab 壳（树空 + 右窗空白，无欢迎页）。
 _Avoid_: 把 Agent tab 当 session 容器或过渡形态（tab 仍是工作区；双视口是终态分工）
 
 **视口（viewport）**:

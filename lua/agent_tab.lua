@@ -46,8 +46,10 @@ local function tree_win(tab)
   end
 end
 
--- 欢迎页：空态显示窗的合法内容（领地守卫唯一豁免，bufvar 标记，ADR 0005）
-local function welcome_buf()
+-- 空态占位 buffer：无 session 时显示窗的合法内容（领地守卫唯一豁免，
+-- bufvar agent_tab_welcome 标记，ADR 0005）。用户裁决：不做欢迎页文案，
+-- 空态就是空白；首开无 agent 直接新建一个（见 toggle）
+local function blank_buf()
   local buf = vim.fn.bufnr("^" .. WELCOME_NAME .. "$")
   if buf == -1 then
     buf = vim.api.nvim_create_buf(false, true)
@@ -55,14 +57,6 @@ local function welcome_buf()
     vim.b[buf].agent_tab_welcome = true
     vim.bo[buf].buftype = "nofile"
     vim.bo[buf].bufhidden = "hide"
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
-      "  󰚩 Agent tab",
-      "",
-      "  没有 session。左侧树按 a（或 <leader>an）新建。",
-      "  树内：<CR> 切换 · a 新建 · d 删除",
-      "  <leader>at 再次进入本 tab 为 no-op，gt/gN 切走即可",
-    })
-    vim.bo[buf].modifiable = false
   end
   return buf
 end
@@ -102,9 +96,9 @@ local function ensure_tree(tab)
   end
 end
 
--- 显示窗应持有的 buffer：session buf，无 current 落欢迎页
+-- 显示窗应持有的 buffer：session buf，无 current 落空态占位
 local function set_display_buf(win, id)
-  local buf = (id and agent.buf_of(id)) or welcome_buf()
+  local buf = (id and agent.buf_of(id)) or blank_buf()
   if vim.api.nvim_win_get_buf(win) ~= buf then
     vim.api.nvim_win_set_buf(win, buf)
   end
@@ -128,7 +122,7 @@ function M.show(id, focus)
   if focus then focus_display(win) end
 end
 
--- 显示窗跟随 current；全灭转欢迎页。不重建被关的窗、不夺焦点。
+-- 显示窗跟随 current；全灭转空白占位。不重建被关的窗、不夺焦点。
 -- TermClose 删死 buffer 前同步调用（事件管线是 schedule 延迟的，赶不上
 -- 删除时刻——bd! 会连带关掉还显示着死 buffer 的窗，ADR 0005）
 local function sync()
@@ -168,7 +162,12 @@ function M.toggle()
   pcall(vim.keymap.del, "n", "<leader>at")
   local tree_base = vim.api.nvim_tabpage_list_wins(new_tab)[1]
   local dw = build_display(new_tab, tree_base)
-  M.show(agent.current_id(), false)
+  -- 首开无 agent：直接新建一个（用户裁决，替代欢迎页）；有则显示 current
+  if agent.current_id() then
+    M.show(agent.current_id(), false)
+  else
+    agent.new()
+  end
   vim.w[tree_base].agent_tree = true
   vim.api.nvim_win_set_width(tree_base, TREE_WIDTH)
   vim.api.nvim_set_current_win(tree_base)

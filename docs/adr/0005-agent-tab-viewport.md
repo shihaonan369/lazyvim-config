@@ -25,20 +25,26 @@ pane；后台联动（spawn 即显、TermClose 顺延/清空、状态变化刷�
 ## 边界与豁免（未来读者会问的）
 
 - tab 右窗复用 winvar `agent_pane`：ADR 0002 领地守卫自动覆盖，不写新守卫。
-  唯一豁免：欢迎 buffer（bufvar `agent_tab_welcome`）——空态时显示窗合法
-  持有非 terminal buffer，是领地"只放 terminal"的唯一例外。
-- `<C-a>`/pane toggle 在 agent tab 内 no-op（入口护栏）。pane 的几何/让位/
-  隐藏路径一行不动；agent_sessions 的 display/spawn/BufWinEnter/TermClose 有
-  为同步模型所必需的接缝改动——未注册 alt 视口时（--clean 测试态）行为与本
-  决定之前逐字相同，真实环境 alt 恒注册但 `active()` 判据保证 tab 外等价旧
-  路径。`ensure_visible`（provider 路径）在 tab 内改道为右窗就位。
-  切入/新建时焦点落显示窗（terminal 才 startinsert），与 `<C-a>` toggle
-  pane 的落点隐喻一致。
+  唯一豁免：空态占位 buffer（bufvar `agent_tab_welcome`，无文案纯空白——
+  欢迎页被用户否决，2026-10-15）——空态时显示窗合法持有非 terminal
+  buffer，是领地"只放 terminal"的唯一例外。
+- `<C-a>` 在 agent tab 内 no-op：护栏只设在 `M.toggle`（`<C-a>` 的真实映射
+  处）。`claude_toggle`（`:ClaudeCode` 的 provider 入口）**不设**护栏——树内
+  `a` 的冷启动（无 claude_cache）经 `:ClaudeCode` → provider 必须放行，
+  曾因护栏掐断致 tab 内首次新建无声失败（2026-10-15 修）；tab 场景由收尾
+  `display()` 路由到右窗，pane_valid 跨 tab 判假不会另立 pane。pane 的
+  几何/让位/隐藏路径一行不动；agent_sessions 的 display/spawn/BufWinEnter/
+  TermClose 有为同步模型所必需的接缝改动——未注册 alt 视口时（--clean 测试
+  态）行为与本决定之前逐字相同。`ensure_visible`（provider 路径）在 tab 内
+  改道为右窗就位。切入/新建时焦点落显示窗（terminal 才 startinsert），与
+  `<C-a>` toggle pane 的落点隐喻一致。
 - `<leader>at` 幂等：tab 不存在则 `$tabnew` **建于末尾**（g1-g9 位置键零
   扰动）、存在则切入、已在其中 no-op；tab 内由 TabEnter 钩子撤映射
   （which-key 不列不可用键），离开恢复。tab 身份 = `vim.t` 标记。
-- 最后一个 session 退出：tab 保留空壳（"(no agents)" + 欢迎页），幂等语义
+- 最后一个 session 退出：tab 保留空壳（树空 + 右窗空白占位），幂等语义
   要求 tab 身份稳定——与 ADR 0002"session 生死不牵连 pane 几何"同构。
+  **首开**（创建 tab 时）无 session 则直接新建一个、树不设 "+ new agent"
+  行（新建走 `a` 键）、不做欢迎页文案——均为用户实用裁决（2026-10-15）。
   TermClose 顺延在 tab 内不夺焦点：内容经事件同步，焦点留在用户所在处。
 - agent tab 内新建 session：pane 不立，termopen 经 `nvim_buf_call` 直接在
   无宿主窗的 buffer 上执行（pane 路径仍走 win_call 旧语义，ADR 0002 修订

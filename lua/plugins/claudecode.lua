@@ -38,6 +38,10 @@ return {
   enabled = function()
     return vim.g.ai_assistant == "claude"
   end,
+  -- 命令注册在 lua/ 而非 plugin/ 目录，lazy 的 shim 自动探测扫不到；
+  -- 不声明则插件未加载时 :ClaudeCode 是 E492——agent_sessions 的冷启动
+  -- （agent tab 首开 / <leader>an 直按）正走这条路
+  cmd = { "ClaudeCode" },
   dependencies = {
     "folke/snacks.nvim",
   },

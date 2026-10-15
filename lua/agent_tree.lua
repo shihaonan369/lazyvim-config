@@ -65,9 +65,7 @@ M.commands = vim.tbl_extend("keep", {
     local node = state.tree:get_node()
     if not node then return end
     local e = node.extra or {}
-    if e.kind == "new" then
-      agent.new()
-    elseif e.id then
+    if e.id then
       agent.select(e.id, true) -- 切换 + 焦点右移（对齐 neo-tree open 惯例）
     end
   end,
@@ -97,22 +95,18 @@ M.setup = function(_config, _global_config) end
 
 M.navigate = function(state)
   state.path = state.path or "agents"
+  -- 只列 session：新建走 a 键，不设 "+ new agent" 行（用户裁决：没必要显示）
   local sessions = agent.list()
-  -- "+ new" 常驻顶部，与 picker 的 "+ new session" 首位隐喻一致
-  local items = { { id = "new", name = "+ new agent", type = "agent_action", extra = { kind = "new" } } }
-  if #sessions == 0 then
-    items[#items + 1] = { id = "empty", name = "(no agents)", type = "agent_action", extra = { kind = "empty" } }
-  else
-    for pass = 1, 2 do -- 当前置顶，其余存活序
-      for _, s in ipairs(sessions) do
-        if (pass == 1) == s.current then
-          items[#items + 1] = {
-            id = "session:" .. s.id,
-            name = "#" .. s.pos,
-            type = "agent_session",
-            extra = { kind = "session", id = s.id, pos = s.pos, state = s.state, current = s.current },
-          }
-        end
+  local items = {}
+  for pass = 1, 2 do -- 当前置顶，其余存活序
+    for _, s in ipairs(sessions) do
+      if (pass == 1) == s.current then
+        items[#items + 1] = {
+          id = "session:" .. s.id,
+          name = "#" .. s.pos,
+          type = "agent_session",
+          extra = { kind = "session", id = s.id, pos = s.pos, state = s.state, current = s.current },
+        }
       end
     end
   end

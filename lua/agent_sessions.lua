@@ -530,9 +530,11 @@ function M.claude_open(cmd_string, env, focus)
 end
 
 function M.claude_toggle(cmd_string, env, focus_mode)
-  -- agent tab 内 pane 概念无效：no-op 护栏（否则 pane_valid 跨 tab 判假，
-  -- 会在 tab 内另立 pane 窗砸坏布局，ADR 0005）
-  if alt_viewport and alt_viewport.active() then return end
+  -- 此处不加 agent tab 护栏：树内 a 的冷启动（无 claude_cache）经
+  -- :ClaudeCode → provider 进来，掐断会令 tab 内首次新建永远无声失败。
+  -- tab 场景由收尾的 display() 路由到右窗；pane_valid 跨 tab 判假，
+  -- 永远走 else 分支，不会在 tab 内另立 pane（用户键 <C-a> 走 M.toggle
+  -- 的护栏）。ADR 0005
   local cmd_list = vim.split(cmd_string, "%s+")
   env = claude_spawn_env(env)
   S.claude_cache = { cmd_list = cmd_list, env = env }
