@@ -32,7 +32,9 @@ vim.api.nvim_create_augroup("tabline_visibility", { clear = true })
 vim.api.nvim_create_autocmd({ "BufAdd", "BufDelete", "TabNew", "TabClosed", "TabEnter" }, {
   group = "tabline_visibility",
   callback = function()
-    local show = #vim.fn.getbufinfo({ buflisted = 1 }) > 1 or #vim.api.nvim_list_tabpages() > 1
-    vim.o.showtabline = show and 2 or 0
+    vim.schedule(function() -- 事件时点的计数快照不含新 buffer（:e 的 BufAdd 实测），出栈后数
+      local show = #vim.fn.getbufinfo({ buflisted = 1 }) > 1 or #vim.api.nvim_list_tabpages() > 1
+      vim.o.showtabline = show and 2 or 0
+    end)
   end,
 })
