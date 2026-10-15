@@ -106,6 +106,17 @@ check("tab 内未另立窗", #tab_wins() == 2)
 check("pane 未在 tab 内创建", not A.pane_visible())
 check("右窗显示当前 session", vim.api.nvim_win_get_buf(dwin) == A.current_buf())
 
+-- 判据 2b（ADR 0003/0005 统一）：agent tab 内 statusline 段隐藏；主 tab 侧
+-- pane 收起但 agent tab 在场 = 看得到 = 不睡；睡觉只属于"看不到但仍存在"
+check("agent tab 内 statusline 段隐藏", A.status() == "")
+vim.cmd("tabnext 1")
+quiesce()
+local awake = A.status()
+local off = vim.fn.nr2char(0xF16A7)
+check("agent tab 在场：主 tab 不显示睡觉图标", awake ~= "" and not awake:find(off, 1, true))
+vim.cmd("tabnext 2")
+quiesce()
+
 -- 判据 3：单一 current 全视口同步 --------------------------------------
 A.select(auto_id, false) -- tab 内切回首开 session
 quiesce()
