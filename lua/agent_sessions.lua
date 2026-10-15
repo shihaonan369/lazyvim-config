@@ -82,6 +82,13 @@ local alt_viewport = nil
 local function apply_term_winopts(win)
   vim.wo[win].number = false
   vim.wo[win].relativenumber = false
+  -- 终端显示窗不留 jumplist：split 会复制主窗的跳转历史，termnormal 里
+  -- C-o 会沿毒条目把 file/agent buffer 走进显示窗（用户实测的泄漏入口）。
+  -- 终端窗不需要导航历史，一次清空、按窗只做一次
+  if not vim.w[win].agent_tj_cleared then
+    vim.w[win].agent_tj_cleared = true
+    pcall(vim.api.nvim_win_call, win, function() vim.cmd("clearjumps") end)
+  end
 end
 
 local function show_pane()

@@ -79,6 +79,7 @@ local function build_display(tab, base)
   vim.w[win].agent_pane = true -- 领地身份：ADR 0002 守卫自动覆盖（ADR 0005）
   vim.wo[win].number = false -- terminal 显示窗不吃全局行号（LazyVim 开着）
   vim.wo[win].relativenumber = false
+  pcall(vim.api.nvim_win_call, win, function() vim.cmd("clearjumps") end) -- 见 apply_term_winopts：jumplist 毒条目
   vim.t[tab].agent_display = win
   return win
 end
