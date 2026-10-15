@@ -69,6 +69,7 @@ quiesce()
 local fake_fired = false
 vim.keymap.set("n", "<leader>as", function() fake_fired = true end, { desc = "fake smart add" })
 check("假 <leader>as 已就位", vim.fn.maparg("<leader>as", "n") ~= "")
+local tabline_before = vim.o.showtabline
 
 -- 判据 1：末尾建 tab、首开自动新建、左树右显示窗 ------------------------
 check("<leader>at 已映射", type((vim.fn.maparg("<leader>at", "n", false, true)).callback) == "function")
@@ -90,7 +91,7 @@ end
 check("左窗树身份（winvar 骨架）", tree_marked)
 check("tab 内 <leader>at 已撤（which-key 不列）", vim.fn.maparg("<leader>at", "n") == "")
 check("tab 内 <leader>as 已撤（捕获-重放机制）", vim.fn.maparg("<leader>as", "n") == "")
-check("tab 内 bufferline 隐藏（showtabline=0）", vim.o.showtabline == 0)
+check("tab 内不动 showtabline（buffer 标签由 custom_filter 滤）", vim.o.showtabline == tabline_before)
 
 -- 判据 1b：<leader>aa 在 tab 内 = 树 toggle --------------------------------
 A.picker() -- agent tab 内改道：关树
@@ -207,7 +208,7 @@ check("离开后 <leader>as 恢复且回调保真", (function()
   m.callback()
   return fake_fired
 end)())
-check("离开后 showtabline 恢复", vim.o.showtabline ~= 0)
+check("离开后 showtabline 未被触碰", vim.o.showtabline == tabline_before)
 press_at() -- 幂等：存在即切（末尾那个）
 quiesce()
 check("再次 <leader>at 存在即切", vim.api.nvim_get_current_tabpage() == T.tab())

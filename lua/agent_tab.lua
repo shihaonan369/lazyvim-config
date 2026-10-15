@@ -267,24 +267,9 @@ local function hide_keys()
   end
 end
 
--- agent tab 内隐藏 bufferline（文件 buffer 标签在 agent 域无意义，用户裁决
--- 2026-10-15）。bufferline 走 'tabline' 渲染，showtabline=0 整条隐藏；
--- 原值捕获-恢复
-local saved_showtabline = nil
-
-local function hide_tabline()
-  saved_showtabline = saved_showtabline or vim.o.showtabline
-  vim.o.showtabline = 0
-  vim.cmd("redrawtabline")
-end
-
-local function restore_tabline()
-  if saved_showtabline then
-    vim.o.showtabline = saved_showtabline
-    vim.cmd("redrawtabline")
-  end
-end
-
+-- agent tab 内不列 file buffer 标签（用户裁决 2026-10-15；tab 页标签保留）。
+-- 不动 showtabline（一刀切会把 tab 标签也藏掉）——过滤交给 bufferline 的
+-- custom_filter（见 lua/plugins/bufferline.lua），tabline 随 TabEnter 自然重绘
 local function restore_keys()
   for lhs, mods in pairs(hidden_keys) do
     for mode, m in pairs(mods) do
@@ -323,7 +308,6 @@ function M.toggle()
   -- 由 TabEnter 钩子负责）
   pcall(vim.keymap.del, "n", "<leader>at")
   hide_keys()
-  hide_tabline() -- TabEnter 在 marker 写入前已扑空过，创建路径补齐（同 at 撤键竞态）
   local tree_base = vim.api.nvim_tabpage_list_wins(new_tab)[1]
   local dw = build_display(new_tab, tree_base)
   -- 首开无 agent：直接新建一个（用户裁决，替代欢迎页）；有则显示 current
@@ -377,21 +361,18 @@ function M.setup()
       if M.active() then
         pcall(vim.keymap.del, "n", "<leader>at")
         hide_keys()
-        hide_tabline()
         local tab = vim.api.nvim_get_current_tabpage()
         if last_tab and last_tab ~= tab then vim.t[tab].return_tab = last_tab end
         vim.schedule(function() ensure_tree(tab) end)
       else
         if vim.fn.maparg("<leader>at", "n") == "" then map_at() end
         restore_keys()
-        restore_tabline()
       end
     end,
   })
   if M.active() then
     pcall(vim.keymap.del, "n", "<leader>at")
     hide_keys()
-    hide_tabline()
   end
 end
 
