@@ -63,6 +63,19 @@ local function pane_focused()
   return pane_valid() and vim.api.nvim_get_current_win() == S.pane_win
 end
 
+-- pane 是否开着（跨 tab：同步语义用这个，toggle/hide 语义仍用 pane_valid
+-- 的同 tab 判定）——agent tab 视口在场时，主 tab 的 pane 也要跟随 current 换
+-- buffer（单一 current、所有显示窗同步，docs/adr/0005）
+local function pane_open()
+  return S.pane_win
+    and vim.api.nvim_win_is_valid(S.pane_win)
+    and vim.w[S.pane_win].agent_pane == true
+end
+
+-- 备用视口注册口（agent_tab 注册 active/show；未注册时行为与本决定之前逐字
+-- 相同）。session 池不感知具体视口，display 只按"当前 tab 是否备用视口"路由
+local alt_viewport = nil
+
 local function show_pane()
   if not pane_valid() then
     local width = math.floor(vim.o.columns * PANE_WIDTH)
@@ -238,7 +251,9 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
       if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
         -- 注意：vim.w[win] 取的是快照，必须穿透赋值（vim.w[win].x = y）才能写回
         if vim.w[win].agent_pane then
-          if not is_agent_buf(buf) then
+          -- 欢迎页豁免：agent tab 空态时右窗合法持有非 terminal buffer，
+          -- 是领地"只放 terminal"的唯一例外（docs/adr/0005）
+          if not is_agent_buf(buf) and not vim.b[buf].agent_tab_welcome then
             S.follow_buf = buf
             relocate(win, buf, pane_restore_buf())
           end
@@ -274,8 +289,17 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
 
 local function display(id, focus)
   S.current = id
-  show_pane()
-  if focus then
+  local in_alt = alt_viewport and alt_viewport.active()
+  if not in_alt and not pane_valid() then
+    show_pane()
+  end
+  local _, cur = by_id(id)
+  if cur and pane_open() then
+    vim.api.nvim_win_set_buf(S.pane_win, cur.bufnr) -- pane 恒显 current（跨 tab 同步，ADR 0005）
+  end
+  if in_alt then
+    alt_viewport.show(id, focus) -- agent tab 右窗同步（含焦点/insert）
+  elseif focus then
     vim.api.nvim_set_current_win(S.pane_win)
     vim.cmd("startinsert")
   end
@@ -385,13 +409,20 @@ local function spawn(cmd_list, env)
   sess.tag = vim.fn.getpid() .. "." .. sess.id -- 状态事件归因（docs/adr/0003）
 
   local prev_win = vim.api.nvim_get_current_win()
-  -- pane 先立起来：termopen 需要一个当前 buffer，session 建好即显示
+  -- pane 先立起来：termopen 需要一个当前 buffer，session 建好即显示。
+  -- agent tab 内新建走备用视口：pane 不立（立了会砸坏 tab 布局，ADR 0005），
+  -- buffer 直接上 tab 右窗，termopen 用 buf_call 在无宿主窗的 buffer 上执行
   sess.bufnr = vim.api.nvim_create_buf(false, true)
   vim.b[sess.bufnr].agent_session = true -- buffer 身份标记：pane 不变量只认它（docs/adr/0002）
   table.insert(S.sessions, sess) -- TermOpen 回调依赖 registry 已登记
-  show_pane()
-  vim.api.nvim_win_set_buf(S.pane_win, sess.bufnr)
   S.current = sess.id
+  local in_alt = alt_viewport and alt_viewport.active()
+  if in_alt then
+    alt_viewport.show(sess.id, false)
+  else
+    show_pane()
+    vim.api.nvim_win_set_buf(S.pane_win, sess.bufnr)
+  end
 
   status_watch_start() -- 邮箱先立起来，agent 启动期的事件不丢
   local opts = {
@@ -401,11 +432,17 @@ local function spawn(cmd_list, env)
       AGENT_STATUS_FILE = status_file(),
     }),
   }
-  -- termopen 挂在当前 buffer 上：pane 复用（未走 vsplit）时焦点可能在主区，
-  -- 必须临时切到 pane 执行，否则会劫持主区当前 buffer
-  vim.api.nvim_win_call(S.pane_win, function()
-    sess.job_id = vim.fn.termopen(cmd_list, opts)
-  end)
+  if in_alt then
+    vim.api.nvim_buf_call(sess.bufnr, function()
+      sess.job_id = vim.fn.termopen(cmd_list, opts)
+    end)
+  else
+    -- termopen 挂在当前 buffer 上：pane 复用（未走 vsplit）时焦点可能在主区，
+    -- 必须临时切到 pane 执行，否则会劫持主区当前 buffer
+    vim.api.nvim_win_call(S.pane_win, function()
+      sess.job_id = vim.fn.termopen(cmd_list, opts)
+    end)
+  end
   vim.bo[sess.bufnr].bufhidden = "hide"
   local ok, pid = pcall(vim.fn.jobpid, sess.job_id)
   if ok then sess.pid = pid end
@@ -493,6 +530,9 @@ function M.claude_open(cmd_string, env, focus)
 end
 
 function M.claude_toggle(cmd_string, env, focus_mode)
+  -- agent tab 内 pane 概念无效：no-op 护栏（否则 pane_valid 跨 tab 判假，
+  -- 会在 tab 内另立 pane 窗砸坏布局，ADR 0005）
+  if alt_viewport and alt_viewport.active() then return end
   local cmd_list = vim.split(cmd_string, "%s+")
   env = claude_spawn_env(env)
   S.claude_cache = { cmd_list = cmd_list, env = env }
@@ -572,6 +612,9 @@ function M.setup()
             if visible then hide_pane() end
           end
         end
+        -- agent tab 显示窗同理：先同步挪开死 buffer 再删（sync 不重建、
+        -- 不夺焦点）；emit 的事件管线是 schedule 延迟的，赶不上删除时刻
+        if alt_viewport and alt_viewport.sync then alt_viewport.sync() end
         -- 此刻死 buffer 已不在任何窗口显示，删除不可能再牵动布局
         if vim.api.nvim_buf_is_valid(args.buf) then
           pcall(vim.api.nvim_buf_delete, args.buf, { force = true })
@@ -609,6 +652,7 @@ function M.setup()
 end
 
 function M.toggle()
+  if alt_viewport and alt_viewport.active() then return end -- agent tab 内 no-op（ADR 0005）
   if pane_valid() then
     hide_pane()
   elseif #S.sessions == 0 then
@@ -636,7 +680,12 @@ function M.focus()
 end
 
 function M.show_only()
-  show_pane()
+  -- ensure_visible 在 agent tab 内 = 右窗就位（claudecode provider 调用路径）
+  if alt_viewport and alt_viewport.active() then
+    alt_viewport.show(S.current, false)
+  else
+    show_pane()
+  end
 end
 
 function M.hide()
@@ -677,12 +726,46 @@ function M.status()
   local hidden = not pane_valid()
   local parts = {}
   for i, s in ipairs(S.sessions) do
-    local pair = STATE_ICON[s.state] or NEUTRAL_ICON
-    local glyph = hidden and ROBOT_OFF
-      or pair[(s.id == S.current) and 1 or 2]
-    parts[i] = "%#" .. (STATE_HL[s.state] or HL_NEUTRAL) .. "#" .. glyph .. " "
+    local glyph, hl = M.icon_for(s.state, s.id == S.current)
+    if hidden then glyph = ROBOT_OFF end
+    parts[i] = "%#" .. hl .. "#" .. glyph .. " "
   end
   return table.concat(parts) .. "%*"
+end
+
+-- 图标计算（statusline / agent tab 树共用同一隐喻，docs/adr/0003/0005）：
+-- 表情×实心/空心孪生 + 状态色，返回 glyph, highlight
+function M.icon_for(state, is_current)
+  local pair = STATE_ICON[state] or NEUTRAL_ICON
+  return pair[is_current and 1 or 2], STATE_HL[state] or HL_NEUTRAL
+end
+
+-- 视口快照（agent tab 树渲染用）：存活序即词汇表的位置编号 #n
+function M.list()
+  local out = {}
+  for i, s in ipairs(S.sessions) do
+    out[i] = { id = s.id, state = s.state, current = s.id == S.current, pos = i }
+  end
+  return out
+end
+
+function M.current_id()
+  return S.current
+end
+
+function M.buf_of(id)
+  local _, s = by_id(id)
+  return s and s.bufnr or nil
+end
+
+-- 选中并显示（agent tab 树 <CR> 路径；focus=焦点进显示窗）
+function M.select(id, focus)
+  display(id, focus)
+end
+
+-- 备用视口注册（agent_tab.setup 调用；vp = { active = fn, show = fn }）
+function M.set_alt_viewport(vp)
+  alt_viewport = vp
 end
 
 -- 本实例的状态事件邮箱路径（测试/诊断用）

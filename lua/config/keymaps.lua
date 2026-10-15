@@ -6,6 +6,11 @@ for i = 1, 9 do
   map("n", "g" .. i, "<cmd>" .. i .. "tabnext<cr>", { desc = "Go to tab " .. i, silent = true })
 end
 
+-- agent tab 视口（docs/adr/0005）：幂等切换（不存在则建于末尾、存在则切入，
+-- 已在其中 no-op——TabEnter 钩子会在 tab 内撤掉本键，which-key 不列不可用键）
+map("n", "<leader>at", function() require("agent_tab").toggle() end, { desc = "Agent tab", silent = true })
+require("agent_tab").setup()
+
 map({ "i", "v" }, "jk", "<esc>", { desc = "esc", silent = true })
 map({ "i", "v" }, "kj", "<esc>", { desc = "esc", silent = true })
 map({ "t" }, "jk", [[<C-\><C-n>]], { desc = "esc", silent = true })

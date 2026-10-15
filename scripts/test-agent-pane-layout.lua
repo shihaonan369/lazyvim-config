@@ -6,7 +6,9 @@
 -- 4) 领地独占时文件进入 pane：让位回 30% 且清除 max_width（陈旧 toggle 还原值）
 -- 5) <C-S-Right> 拉满：9999 原语义挤到 winminwidth，最大化期间重算底线对齐
 --    挤压底线 winwidth=winminwidth（否则重算把兄弟窗抬回 20、从 pane 偷宽）
-local A = dofile(REPO .. "/lua/agent_sessions.lua")
+package.path = REPO .. "/lua/?.lua;" .. package.path
+local A = require("agent_sessions") -- require 而非 dofile：keymaps 顶层会拉起
+-- agent_tab → agent_sessions，两份实例会让空实例的领地守卫拆掉真实例的标记
 dofile(REPO .. "/lua/config/keymaps.lua") -- 真键位路径：toggle_max_width 让回逻辑
 A.setup()
 
