@@ -849,9 +849,21 @@ function M.send(text, submit)
   vim.schedule(function() M.focus() end)
 end
 
-function M.delete(id)
+-- 退出/删除 session。默认优雅退出（树内 d，用户裁决 2026-10-15）：向 pty
+-- 发退出命令（Ctrl-U 清草稿 → /exit → CR，同 rename 注入序列），agent 走
+-- 自己的收尾（存 transcript/状态），不强杀、不兜底——回合中命令排队、
+-- 回合结束自然退出。force=true 直杀（ExitPre 收尾、回归测试等内部路径）。
+-- codex/opencode 退出命令未核实，维持 jobstop（TODO：各家命令确认后接入）
+function M.delete(id, force)
   local _, sess = by_id(id)
   if not sess then return end
+  if not force and S.ptype == "claude" then
+    local chan = vim.b[sess.bufnr].terminal_job_id
+    if chan then
+      vim.api.nvim_chan_send(chan, "\21/exit\r")
+      return
+    end
+  end
   if sess.job_id then vim.fn.jobstop(sess.job_id) end
   -- TermClose 回调负责移除和清理
 end

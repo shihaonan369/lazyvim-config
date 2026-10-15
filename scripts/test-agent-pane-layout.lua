@@ -74,7 +74,7 @@ maxed = vim.api.nvim_win_get_width(pw)
 quiesce()
 
 -- 判据 1：关当前 session，pane 原窗原宽
-A.delete(2)
+A.delete(2, true)
 check(
   "关当前后 session 数减一",
   vim.wait(2000, function()
@@ -90,7 +90,7 @@ check("关当前后无多余窗口", #wins() == 2)
 A.claude_open("/bin/sleep 600", {}, false) -- session #3（当前显示）
 quiesce()
 local pw3 = pane_win()
-A.delete(1)
+A.delete(1, true)
 check(
   "关后台后 session 数减一",
   vim.wait(2000, function()
@@ -106,14 +106,14 @@ for _, w in ipairs(wins()) do
     pcall(vim.api.nvim_win_close, w, true)
   end
 end
-A.delete(3) -- 当前
+A.delete(3, true) -- 当前
 check(
   "删当前至剩一个",
   vim.wait(2000, function()
     return A.count() == 1
   end)
 )
-A.delete(4) -- 最后一个
+A.delete(4, true) -- 最后一个
 check(
   "删最后一个后 session 清零",
   vim.wait(2000, function()
@@ -157,7 +157,7 @@ for _, w in ipairs(vim.fn.win_findbuf(fbuf)) do
 end
 check("入侵文件已被搬到主区", fbuf_relocated)
 
-A.delete(5)
+A.delete(5, true)
 vim.wait(2000, function()
   return A.count() == 0
 end)
@@ -185,7 +185,7 @@ for _, w in ipairs(vim.api.nvim_list_wins()) do
 end
 check("split 克隆的 agent buffer 已被清退", stray == 0)
 check("pane 自身不受清退影响", vim.api.nvim_win_get_buf(pb6) == clone_buf)
-A.delete(A.current_id())
+A.delete(A.current_id(), true)
 vim.wait(2000, function()
   return A.count() == 0
 end)

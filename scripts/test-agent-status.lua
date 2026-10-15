@@ -97,7 +97,7 @@ check("收起后全体睡觉且色保留",
 
 -- 删除当前 session：TermClose 移除、编号顺延、状态随之消失。
 -- pane 仍处于收起状态，先 show 回来再断言表情图标与状态保留
-A.delete(2)
+A.delete(2, true)
 A.show_only()
 check("删除后 session1 转正(空心→实心)且状态保留", settle("%#DiagnosticError#" .. confused))
 check("删除后无睡觉/空心残留",

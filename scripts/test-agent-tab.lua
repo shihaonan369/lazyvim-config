@@ -57,7 +57,7 @@ A.claude_open("/bin/cat", {}, false)
 check("缓存预置 session 建好", vim.wait(2000, function()
   return A.count() == 1
 end))
-A.delete(1)
+A.delete(1, true)
 check("预置 session 已清", vim.wait(2000, function()
   return A.count() == 0
 end))
@@ -194,13 +194,13 @@ vim.api.nvim_set_current_tabpage(tab) -- 回 tab 继续后续判据
 quiesce()
 
 -- 判据 5：TermClose 顺延/清空、空壳保留、离开恢复映射 -------------------
-A.delete(opened_id) -- 当前，顺延首开 session
+A.delete(opened_id, true) -- 当前，顺延首开 session
 check("删当前后顺延", vim.wait(2000, function()
   return A.count() == 1
 end))
 quiesce()
 check("右窗顺延显示存活 session", dw() ~= nil and vim.api.nvim_win_get_buf(dw()) == A.buf_of(auto_id))
-A.delete(auto_id) -- 最后一个：转空白占位
+A.delete(auto_id, true) -- 最后一个：转空白占位
 check("全灭后 session 清零", vim.wait(2000, function()
   return A.count() == 0
 end))
@@ -220,6 +220,19 @@ check("离开后 showtabline 未被触碰", vim.o.showtabline == tabline_before)
 press_at() -- 幂等：存在即切（末尾那个）
 quiesce()
 check("再次 <leader>at 存在即切", vim.api.nvim_get_current_tabpage() == T.tab())
+
+-- 判据 6：d 默认优雅退出（用户裁决 2026-10-15）——只发命令不强杀；
+-- 假 agent 不懂 /exit，存活即证明未 jobstop，force 收尾
+A.claude_open("/bin/sleep 601", {}, false)
+quiesce()
+local gid = A.current_id()
+A.delete(gid)
+quiesce(300)
+check("d 默认优雅：不立即强杀", A.count() == 1)
+A.delete(gid, true)
+check("force 收尾清零", vim.wait(2000, function()
+  return A.count() == 0
+end))
 
 print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
 vim.cmd(#fails == 0 and "qa!" or "cq")
