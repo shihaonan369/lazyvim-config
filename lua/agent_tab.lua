@@ -172,13 +172,6 @@ function M.tree_toggle()
   end
 end
 
--- 任一视口正在展示 session——statusline 睡觉隐喻的判据：
--- 看得到（有显示窗在场）= 醒，看不到但仍存在 = 睡（ADR 0003/0005 统一）
-function M.showing()
-  local tab = M.tab()
-  return tab ~= nil and display_win(tab) ~= nil
-end
-
 -- agent tab 只收 agent 域（用户裁决 2026-10-15）：file buffer 等落进树窗/
 -- 显示窗，挪回来源 tab 主区并带视角过去；被污染的本职窗口复原（树窗重建、
 -- 显示窗 sync）。缓冲区点击/`:buffer`/picker 兜底等入口一概同路
@@ -298,7 +291,6 @@ function M.setup()
       local tab = M.tab()
       return tab ~= nil and win == display_win(tab)
     end,
-    showing = M.showing,
   })
   local grp = vim.api.nvim_create_augroup("agent_tab", { clear = true })
   vim.api.nvim_create_autocmd("User", {

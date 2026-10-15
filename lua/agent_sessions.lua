@@ -773,10 +773,9 @@ function M.status()
   if #S.sessions == 0 then return "" end
   -- agent tab 内不显示本段：树已承载全部信息（用户裁决，ADR 0005）
   if alt_viewport and alt_viewport.active() then return "" end
-  -- 睡觉隐喻统一为"人看不到但仍存在"：pane 收起且无任何视口在展示才睡
-  -- （agent tab 在场 = 看得到，不算隐藏；ADR 0003 修订）
+  -- 睡觉 = 当前视角看不到但仍存在：pane_valid 本就是同 tab 判定，
+  -- 人在哪个 tab 就看那个 tab 的 pane；agent tab 存在 ≠ 看得到（ADR 0003 修订）
   local hidden = not pane_valid()
-    and not (alt_viewport and alt_viewport.showing and alt_viewport.showing())
   local parts = {}
   for i, s in ipairs(S.sessions) do
     local glyph, hl = M.icon_for(s.state, s.id == S.current)

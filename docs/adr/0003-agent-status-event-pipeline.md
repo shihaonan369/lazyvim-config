@@ -97,10 +97,11 @@ export const AgentStatusMirror = async () => ({
 
 回归门：`scripts/test-agent-status.sh`（headless --clean，判据=模块状态与 `status()` 字符串，不依赖 UI redraw）。
 
-## 修订（2026-10-15）：睡觉隐喻统一为"人看不到但仍存在"
+## 修订（2026-10-15）：睡觉隐喻 = "当前视角看不到但仍存在"；agent tab 内段隐藏
 
-原规则"pane 收起即全体 robot_off"在 agent tab 视口落地后出现隐喻裂缝：
-tab 在场时 session 明明看得到（树+显示窗），statusline 却因 pane_valid 跨 tab
-判假而显示睡觉。统一：睡觉 ⟺ pane 收起**且**无任何视口在展示（alt_viewport
-注册 showing() 判据；未注册时行为与旧规则逐字相同）；agent tab 内 statusline
-的 agent 段整体隐藏——树已承载全部信息，statusline 只服务看不到的人。
+睡觉判定回归最简（`not pane_valid()`，本就是同 tab 判定——人在哪个 tab 就看
+哪个 tab 的 pane）：可见性以**当前视角**为准，agent tab 存在 ≠ 此刻看得到，
+人不在 agent tab 时那边再热闹也是"看不到"= 睡。曾短暂引入"任一视口在展示
+即醒"的 showing() 判据，被用户纠正后拆除（记此防反复）。agent tab 内
+statusline 的 agent 段整体隐藏——树已承载全部信息，statusline 只服务此刻
+看不到的人。
