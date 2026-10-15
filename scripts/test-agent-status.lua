@@ -133,9 +133,9 @@ check("/rename → transcript 增量同步", vim.wait(2000, function()
   return A.list()[1] and A.list()[1].name == "新名字"
 end))
 
--- nvim 侧改名：本地即刻生效（PTY 注入对假 agent 无害——/bin/sleep 不读 stdin）
+-- nvim 侧改名（claude）：只发命令不落名——名字单点在回流，假成功不科学
 A.rename(A.list()[1].id, "本地改名")
-check("nvim 侧 r 改名本地生效", A.list()[1].name == "本地改名")
+check("r 只发命令不本地落名（claude 回流单点）", A.list()[1].name == "新名字")
 
 print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
 vim.cmd(#fails == 0 and "qa!" or "cq")

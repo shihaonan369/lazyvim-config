@@ -886,20 +886,23 @@ function M.list()
   return out
 end
 
--- 重命名 session（树内 r）：nvim 侧即刻生效；claude 侧 PTY 注入 /rename——
--- 与 M.send 同通道同语义（回合中排队、与手输竞争）；claude 侧改名回流的
--- custom-title 行与本地同值，watcher 幂等不回环。codex/opencode 无注入通道，
--- 暂只改本地名（TODO：各家斜杠命令确认后补）
+-- 重命名 session（树内 r）。claude：**只发命令不落名**——名字唯一落点在
+-- custom-title 回流（claude 是权威），命令没被执行则树保持旧名，不假成功
+-- （用户裁决：显示的统一性要单点）。Enter 用 CR：termopen pty 裸模式下
+-- 回车是 \r，\n 不提交（M.send 的 \n 是"粘贴待审"语义，另回事）。注入走
+-- 被选中 session 自己的 channel，选谁发谁。codex/opencode 无回流通道，暂
+-- 本地落名（TODO：各家斜杠命令确认后改走注入+回流）
 function M.rename(id, name)
   local _, s = by_id(id)
   if not s or not name or name == "" then return end
   name = name:gsub("%c", "") -- 控制字符清掉（claude 侧也会净化，双保险）
-  s.name = name
   if S.ptype == "claude" then
     local chan = vim.b[s.bufnr].terminal_job_id
-    if chan then vim.api.nvim_chan_send(chan, "/rename " .. name .. "\n") end
+    if chan then vim.api.nvim_chan_send(chan, "/rename " .. name .. "\r") end
+  else
+    s.name = name
+    emit()
   end
-  emit()
 end
 
 function M.current_id()
