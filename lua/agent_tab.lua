@@ -96,6 +96,20 @@ local function ensure_tree(tab)
   end
 end
 
+-- 关树窗（q 与 tab 内 <leader>at 共用）。注意 neo-tree 自带的 close_window
+-- 在 position=current 窗口里只清 buffer 不关窗，留下空 editor 窗且
+-- agent_tree winvar 还挂着——ensure_tree 会误判树在、永远不重建（实测踩过），
+-- 所以 q 由本源接管直接关窗。树是 tab 唯一窗时关窗即关 tab（marker 消失，
+-- <leader>at 幂等重建）；全 nvim 只剩这一个窗则 E444 防御跳过
+local function close_tree(tab)
+  local win = tree_win(tab)
+  if not win then return end
+  if #vim.api.nvim_tabpage_list_wins(tab) == 1 and #vim.api.nvim_list_tabpages() == 1 then
+    return
+  end
+  pcall(vim.api.nvim_win_close, win, false)
+end
+
 -- 显示窗应持有的 buffer：session buf，无 current 落空态占位
 local function set_display_buf(win, id)
   local buf = (id and agent.buf_of(id)) or blank_buf()
@@ -139,6 +153,20 @@ local function on_changed()
   pcall(function() require("neo-tree.sources.manager").refresh("agent_tree") end)
 end
 
+-- <leader>aa 在 agent tab 内的形态：树 toggle（关了开、开了关）。
+-- 隐喻统一：aa = "给我看 agent 列表"，主 tab 是浮窗 picker，agent tab 是
+-- 左侧树（用户裁决，2026-10-15）——agent_sessions.M.picker 经 alt_viewport
+-- 分派到这里
+function M.tree_toggle()
+  local tab = M.tab()
+  if not tab then return end
+  if tree_win(tab) then
+    close_tree(tab)
+  else
+    ensure_tree(tab)
+  end
+end
+
 -- <leader>at：agent tab 内撤映射（no-op 且 which-key 不列不可用键），离开恢复
 local function map_at()
   vim.keymap.set("n", "<leader>at", function() M.toggle() end, { desc = "Agent tab", silent = true })
@@ -179,7 +207,7 @@ function M.setup()
   if set_up then return end
   set_up = true
   agent.setup() -- 幂等：冷启动直接 <leader>at → 树内 a 新建，ptype/TermClose 必须就位
-  agent.set_alt_viewport({ active = M.active, show = M.show, sync = sync })
+  agent.set_alt_viewport({ active = M.active, show = M.show, sync = sync, picker = M.tree_toggle })
   local grp = vim.api.nvim_create_augroup("agent_tab", { clear = true })
   vim.api.nvim_create_autocmd("User", {
     group = grp,

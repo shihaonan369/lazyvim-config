@@ -789,6 +789,11 @@ function M.current_buf()
 end
 
 function M.picker()
+  -- agent tab 内改道：列表形态 = 左侧树而非浮窗（aa 的隐喻是"看 agent
+  -- 列表"，形态随视口），树 toggle 由 agent_tab 提供（ADR 0005）
+  if alt_viewport and alt_viewport.active() and alt_viewport.picker then
+    return alt_viewport.picker()
+  end
   local items = { { text = "+ new session", is_new = true } }
   for i, s in ipairs(S.sessions) do
     table.insert(items, { text = string.format("%s #%d", PTYPE_ICON, i), id = s.id, bufnr = s.bufnr })

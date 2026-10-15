@@ -49,9 +49,15 @@ pane；后台联动（spawn 即显、TermClose 顺延/清空、状态变化刷�
 - agent tab 内新建 session：pane 不立，termopen 经 `nvim_buf_call` 直接在
   无宿主窗的 buffer 上执行（pane 路径仍走 win_call 旧语义，ADR 0002 修订
   的回归不扰动）。
-- 左窗树被手动关掉：切入时（toggle 与 TabEnter）从显示窗左侧重开；右窗被
-  关掉：同步路径尊重不重建，显式显示（`<CR>`/`a`）时重建。树窗身份 =
-  winvar `agent_tree`（filetype 判定在 neo-tree 未加载的 headless 场景失真）。
+- 左窗树被手动关掉：`q` 与 `<leader>aa` 都是树 toggle 的把手——**aa 的隐喻
+  是"给我看 agent 列表"，形态随视口**（主 tab = 浮窗 picker，agent tab =
+  左侧树 toggle，经 `M.picker` 的 alt_viewport 分派，三个插件 spec 零改动；
+  用户裁决 2026-10-15）；切入 tab（TabEnter）也会兜底重开。**q 必须由本源
+  接管真关窗**：neo-tree 自带 close_window 在 position=current 窗口里只清
+  buffer 不关窗，留下空 editor 窗且 agent_tree winvar 还挂着——ensure_tree
+  误判树在、永远不重建（实测踩过）。右窗被关掉：同步路径尊重不重建，显式
+  显示（`<CR>`/`a`）时重建。树窗身份 = winvar `agent_tree`（filetype 判定
+  在 neo-tree 未加载的 headless 场景失真）。
 
 ## 弃选
 

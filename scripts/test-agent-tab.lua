@@ -2,6 +2,8 @@
 -- 判据 = tab/窗口/模块状态实测，不依赖 UI redraw；neo-tree 缺席时树降级为
 -- winvar 骨架（agent_tree winvar 判据与真实环境同构）。覆盖（docs/adr/0005）：
 -- 1) <leader>at 幂等：末尾建 tab、首开自动新建、存在即切、tab 内 no-op 且撤映射
+-- 1b) <leader>aa 视口分派：agent tab 内 = 树 toggle（主 tab 仍浮窗 picker，不在
+--     --clean 测——Snacks 缺席，分派判据已保证不落到那段）
 -- 2) tab 内再建：pane 不立、右窗即显、termopen 走 buf_call
 -- 3) 单一 current 全视口同步：agent tab 选中，主 tab pane 跨 tab 换 buffer
 -- 4) <C-a> 护栏：tab 内 toggle 不另立 pane 窗
@@ -80,6 +82,20 @@ for _, w in ipairs(tab_wins()) do
 end
 check("左窗树身份（winvar 骨架）", tree_marked)
 check("tab 内 <leader>at 已撤（which-key 不列）", vim.fn.maparg("<leader>at", "n") == "")
+
+-- 判据 1b：<leader>aa 在 tab 内 = 树 toggle --------------------------------
+A.picker() -- agent tab 内改道：关树
+quiesce()
+check("tab 内 <leader>aa 关树", #tab_wins() == 1)
+check("关树后显示窗仍在", dw() ~= nil and vim.w[dw()].agent_pane == true)
+A.picker() -- 再按：重开
+quiesce()
+check("tab 内 <leader>aa 重开树", #tab_wins() == 2)
+local tree_again = false
+for _, w in ipairs(tab_wins()) do
+  if vim.w[w].agent_tree == true then tree_again = true end
+end
+check("重开树窗身份就位", tree_again)
 
 -- 判据 2：tab 内再建——pane 不立、右窗即显、无多余窗 ---------------------
 A.claude_open("/bin/sleep 601", {}, false) -- 新 session（当前）

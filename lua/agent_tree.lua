@@ -22,6 +22,10 @@ M.default_config = {
       ["<2-LeftMouse>"] = "agent_open",
       ["a"] = "agent_new",
       ["d"] = "agent_delete",
+      -- q 必须接管：neo-tree 自带 close_window 在 position=current 窗口里
+      -- 只清 buffer 不关窗，留下空 editor 窗且 agent_tree winvar 还挂着，
+      -- ensure_tree 误判树在、永远不重建（实测踩过）；再开走 <leader>aa
+      ["q"] = "agent_close_tree",
     },
   },
   renderers = {
@@ -83,9 +87,11 @@ M.commands = vim.tbl_extend("keep", {
   refresh = function()
     M.refresh()
   end,
+  agent_close_tree = function()
+    pcall(vim.api.nvim_win_close, 0, false) -- 树是 tab 唯一窗时关窗即关 tab，幂等可重建
+  end,
 }, {
   show_help = common_commands.show_help,
-  close_window = common_commands.close_window,
   cancel = common_commands.cancel,
 })
 
