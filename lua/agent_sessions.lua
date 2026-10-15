@@ -897,8 +897,11 @@ function M.rename(id, name)
   if not s or not name or name == "" then return end
   name = name:gsub("%c", "") -- 控制字符清掉（claude 侧也会净化，双保险）
   if S.ptype == "claude" then
+    -- \21(Ctrl-U)先清 input 草稿：盲通道下无法感知/保存用户未提交文字，
+    -- 不清则命令与草稿拼接——改名失败且草稿被毁，两头不一致。取舍：罕见
+    -- 窗口（草稿未提交时来树里按 r）的草稿被牺牲，换取 rename 恒定干净执行
     local chan = vim.b[s.bufnr].terminal_job_id
-    if chan then vim.api.nvim_chan_send(chan, "/rename " .. name .. "\r") end
+    if chan then vim.api.nvim_chan_send(chan, "\21/rename " .. name .. "\r") end
   else
     s.name = name
     emit()

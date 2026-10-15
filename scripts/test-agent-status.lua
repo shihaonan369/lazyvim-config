@@ -4,6 +4,7 @@
 -- 非法状态词忽略、pane 收起全体睡觉且颜色保留、session 删除后状态随之消失。
 -- docs/adr/0003。
 local A = dofile(REPO .. "/lua/agent_sessions.lua")
+vim.g.ai_assistant = "claude" -- 对齐真实配置默认（options.lua）；rename 分派依赖 ptype
 A.setup()
 
 local fails = {}
