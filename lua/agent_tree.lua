@@ -4,8 +4,9 @@
 -- 刷新由 agent_tab 经 User AgentSessionsChanged → manager.refresh 驱动，
 -- 与状态管线同源（docs/adr/0003），零轮询。
 -- 外观：状态机器人图标在每项前方（表情×实心/空心孪生 + 状态色，与
--- statusline/picker 同一隐喻）；当前 session 置顶，其余按存活序（词汇表：
--- session 用位置编号 #n 称呼）。
+-- statusline/picker 同一隐喻）；顺序恒为存活序——切换不重排，当前项只靠
+-- 实心图标 + 高亮标识（用户裁决 2026-10-15；词汇表：session 用位置编号
+-- #n 称呼，顺序稳定编号才稳定）。
 local manager = require("neo-tree.sources.manager")
 local renderer = require("neo-tree.ui.renderer")
 local agent = require("agent_sessions")
@@ -101,20 +102,16 @@ M.setup = function(_config, _global_config) end
 
 M.navigate = function(state)
   state.path = state.path or "agents"
-  -- 只列 session：新建走 a 键，不设 "+ new agent" 行（用户裁决：没必要显示）
-  local sessions = agent.list()
+  -- 只列 session：新建走 a 键，不设 "+ new agent" 行；顺序恒为存活序，
+  -- 切换 current 不重排（重排会让位置编号 #n 漂移，肌肉记忆无处安放）
   local items = {}
-  for pass = 1, 2 do -- 当前置顶，其余存活序
-    for _, s in ipairs(sessions) do
-      if (pass == 1) == s.current then
-        items[#items + 1] = {
-          id = "session:" .. s.id,
-          name = "#" .. s.pos,
-          type = "agent_session",
-          extra = { kind = "session", id = s.id, pos = s.pos, state = s.state, current = s.current },
-        }
-      end
-    end
+  for _, s in ipairs(agent.list()) do
+    items[#items + 1] = {
+      id = "session:" .. s.id,
+      name = "#" .. s.pos,
+      type = "agent_session",
+      extra = { kind = "session", id = s.id, pos = s.pos, state = s.state, current = s.current },
+    }
   end
   renderer.show_nodes(items, state)
 end

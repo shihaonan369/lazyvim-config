@@ -13,7 +13,10 @@ return {
     opts.agent_tree = {
       window = {
         mappings = {
-          ["l"] = "none",
+          -- l 与 <CR> 同义（neo-tree 惯例 l=open）。必须放这层：LazyVim 全局
+          -- window.mappings 的 l="open" 在 user 层，会压过源模块 default_config，
+          -- 而本源无 open 命令、映射会被整体跳过
+          ["l"] = "agent_open",
           ["h"] = "none",
           ["P"] = "none",
           ["z"] = "none",
