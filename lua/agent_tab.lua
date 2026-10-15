@@ -353,6 +353,22 @@ function M.setup()
     group = grp,
     callback = on_buf_enter, -- agent tab 只收 agent 域：file buffer 挪回来源 tab
   })
+  -- 窗口出生记录仪（诊断"显示窗偶发变窄"的触发源，用户尚不清楚条件）：
+  -- agent tab 内每次开窗，把创建栈回溯落进 run 目录日志。抓到真凶后可移除
+  vim.api.nvim_create_autocmd("WinNew", {
+    group = grp,
+    callback = function()
+      local tab = vim.api.nvim_get_current_tabpage()
+      if not is_agent_tab(tab) then return end
+      local log = vim.fn.stdpath("run") .. "/agent-tab-winnew.log"
+      local fh = io.open(log, "a")
+      if not fh then return end
+      fh:write(os.date("%H:%M:%S") .. " WinNew wins=" .. #vim.api.nvim_tabpage_list_wins(tab)
+        .. " display_w=" .. (display_win(tab) and vim.api.nvim_win_get_width(display_win(tab)) or "?")
+        .. "\n" .. debug.traceback() .. "\n")
+      fh:close()
+    end,
+  })
   vim.api.nvim_create_autocmd("TabLeave", {
     group = grp,
     callback = function()

@@ -335,7 +335,23 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
 
 -- 反向入侵清查：agent session buffer 只许住在领地窗口。split 克隆、:buffer
 -- 等"buffer 已在别窗显示"的路径不触发 BufWinEnter（实测），靠 WinNew/
--- WinEnter/BufEnter 兜底全窗扫描（入口无关）。清退延后出栈执行（同 relocate）
+-- WinEnter/BufEnter 兜底全窗扫描（入口无关）。清退 = 关窗（泄漏窗是
+-- terminal 克隆无用户内容；enew 会留下空窗把 agent tab 显示窗挤窄——实测），
+-- 关不得（E444 等）才退回 enew + unlisted。延后出栈执行（同 relocate）
+local function evict_stray(win, buf)
+  vim.schedule(function()
+    if not vim.api.nvim_win_is_valid(win) or vim.api.nvim_win_get_buf(win) ~= buf then
+      return
+    end
+    if not pcall(vim.api.nvim_win_close, win, false) then
+      pcall(vim.api.nvim_win_call, win, function()
+        vim.cmd("enew")
+        vim.bo.buflisted = false
+      end)
+    end
+  end)
+end
+
 local function sweep_strays()
   for _, win in ipairs(vim.api.nvim_list_wins()) do
     if vim.api.nvim_win_is_valid(win)
@@ -343,15 +359,7 @@ local function sweep_strays()
       and not is_territory(win)
       and is_agent_buf(vim.api.nvim_win_get_buf(win))
     then
-      local buf = vim.api.nvim_win_get_buf(win)
-      vim.schedule(function()
-        if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == buf then
-          pcall(vim.api.nvim_win_call, win, function()
-            vim.cmd("enew")
-            vim.bo.buflisted = false -- 清退窗不留导航目标，别污染 buffer 计数
-          end)
-        end
-      end)
+      evict_stray(win, vim.api.nvim_win_get_buf(win))
     end
   end
 end
