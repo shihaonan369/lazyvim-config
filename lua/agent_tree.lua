@@ -82,8 +82,8 @@ M.commands = vim.tbl_extend("keep", {
     local node = state.tree:get_node()
     local e = node and node.extra or {}
     if e.kind ~= "session" then return end
-    local n = e.pos or "?"
-    if vim.fn.confirm("删除 agent session #" .. n .. "?", "&Yes\n&No") ~= 1 then return end
+    -- 不弹确认（用户裁决 2026-10-15）：优雅退出本身可逆性足够，claude 忙时
+    -- 有自己的退出守卫，双层确认反而碍事
     agent.delete(e.id) -- 移除与清理走 TermClose 既有管线
   end,
   agent_rename = function(state)
