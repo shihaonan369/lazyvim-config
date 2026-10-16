@@ -447,7 +447,41 @@ local function name_apply(s, title)
   end
 end
 
+-- transcript 增量 drain：offset 续读 + 残行缓存，扫 custom-title 行。
+-- 三处调用：fs_event 回调、登记时、每条状态事件（搭车重查）——macOS
+-- FSEvents 偶发丢通知，而"补读追赶"依赖后续写入；rename 恰是末条时会
+-- 永远漏。状态事件高频（working/idle 来回切），搭车一次自愈
+local function tw_drain(s)
+  if not s.tw_path then return end
+  local fh = vim.uv.fs_open(s.tw_path, "r", 384)
+  if not fh then return end
+  local stat = vim.uv.fs_fstat(fh)
+  if stat then
+    if stat.size < s.tw_off then s.tw_off, s.tw_partial = 0, "" end -- 截断兜底
+    if stat.size > s.tw_off then
+      local data = vim.uv.fs_read(fh, stat.size - s.tw_off, s.tw_off)
+      if data then
+        s.tw_off = s.tw_off + #data
+        s.tw_partial = s.tw_partial .. data
+        while true do
+          local nl = s.tw_partial:find("\n", 1, true)
+          if not nl then break end
+          local line = s.tw_partial:sub(1, nl - 1)
+          s.tw_partial = s.tw_partial:sub(nl + 1)
+          if line:find('"custom-title"', 1, true) then
+            local ok, ev = pcall(vim.json.decode, line)
+            if ok and type(ev) == "table" then name_apply(s, ev.customTitle) end
+          end
+        end
+      end
+    end
+  end
+  vim.uv.fs_close(fh)
+end
+
 local function watch_transcript(s, transcript)
+  s.tw_path = transcript
+  s.tw_off, s.tw_partial = 0, ""
   local sid = vim.fn.fnamemodify(transcript, ":t:r")
   local ct = vim.fn.fnamemodify(transcript, ":h") .. "/" .. sid .. "/custom-title.json"
   local fd = vim.uv.fs_open(ct, "r", 384)
@@ -462,34 +496,11 @@ local function watch_transcript(s, transcript)
     s.tw_handle:stop()
     s.tw_handle:close()
   end
-  s.tw_off, s.tw_partial = 0, ""
   s.tw_handle = vim.uv.new_fs_event()
   s.tw_handle:start(transcript, {}, vim.schedule_wrap(function()
-    local fh = vim.uv.fs_open(transcript, "r", 384)
-    if not fh then return end
-    local stat = vim.uv.fs_fstat(fh)
-    if stat then
-      if stat.size < s.tw_off then s.tw_off, s.tw_partial = 0, "" end -- 截断兜底
-      if stat.size > s.tw_off then
-        local data = vim.uv.fs_read(fh, stat.size - s.tw_off, s.tw_off)
-        if data then
-          s.tw_off = s.tw_off + #data
-          s.tw_partial = s.tw_partial .. data
-          while true do
-            local nl = s.tw_partial:find("\n", 1, true)
-            if not nl then break end
-            local line = s.tw_partial:sub(1, nl - 1)
-            s.tw_partial = s.tw_partial:sub(nl + 1)
-            if line:find('"custom-title"', 1, true) then
-              local ok, ev = pcall(vim.json.decode, line)
-              if ok and type(ev) == "table" then name_apply(s, ev.customTitle) end
-            end
-          end
-        end
-      end
-    end
-    vim.uv.fs_close(fh)
+    tw_drain(s)
   end))
+  tw_drain(s) -- 登记即读：监听激活前的既有内容（含 resume 场景）
 end
 
 local function status_apply(line)
@@ -499,6 +510,7 @@ local function status_apply(line)
     if s.tag == ev.tag then
       if STATE_HL[ev.state] then -- 只认统一状态词表
         s.state = ev.state
+        tw_drain(s) -- 搭车重查：补 FSEvents 丢通知的漏（见 tw_drain 注释）
       elseif ev.sid and ev.transcript then -- SessionStart 身份上报（名字同步）
         watch_transcript(s, ev.transcript)
       end
