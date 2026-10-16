@@ -479,19 +479,24 @@ local function tw_drain(s)
   vim.uv.fs_close(fh)
 end
 
-local function watch_transcript(s, transcript)
-  s.tw_path = transcript
-  s.tw_off, s.tw_partial = 0, ""
+-- custom-title.json = claude 维护的当下名字快照，独立于 transcript offset/
+-- 事件状态——登记时与 aa 兜底都直接读它
+local function apply_custom_title_file(s, transcript)
   local sid = vim.fn.fnamemodify(transcript, ":t:r")
   local ct = vim.fn.fnamemodify(transcript, ":h") .. "/" .. sid .. "/custom-title.json"
   local fd = vim.uv.fs_open(ct, "r", 384)
-  if fd then
-    local stat = vim.uv.fs_fstat(fd)
-    local data = stat and stat.size > 0 and vim.uv.fs_read(fd, stat.size, 0)
-    vim.uv.fs_close(fd)
-    local ok, obj = pcall(vim.json.decode, data or "")
-    if ok and type(obj) == "table" then name_apply(s, obj.customTitle) end
-  end
+  if not fd then return end
+  local stat = vim.uv.fs_fstat(fd)
+  local data = stat and stat.size > 0 and vim.uv.fs_read(fd, stat.size, 0)
+  vim.uv.fs_close(fd)
+  local ok, obj = pcall(vim.json.decode, data or "")
+  if ok and type(obj) == "table" then name_apply(s, obj.customTitle) end
+end
+
+local function watch_transcript(s, transcript)
+  s.tw_path = transcript
+  s.tw_off, s.tw_partial = 0, ""
+  apply_custom_title_file(s, transcript)
   if s.tw_handle then
     s.tw_handle:stop()
     s.tw_handle:close()
@@ -984,6 +989,15 @@ function M.current_buf()
 end
 
 function M.picker()
+  -- aa 兜底（用户裁决 2026-10-16）：入口处全量重读名字——transcript drain
+  -- 补 FSEvents 丢通知，custom-title.json 快照是当下真相；偶尔没回显时按一次
+  -- aa 即补救
+  for _, s in ipairs(S.sessions) do
+    if s.tw_path then
+      tw_drain(s)
+      apply_custom_title_file(s, s.tw_path)
+    end
+  end
   -- agent tab 内改道：列表形态 = 左侧树而非浮窗（aa 的隐喻是"看 agent
   -- 列表"，形态随视口），树 toggle 由 agent_tab 提供（ADR 0005）
   if alt_viewport and alt_viewport.active() and alt_viewport.picker then
