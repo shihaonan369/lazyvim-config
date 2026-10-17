@@ -369,6 +369,25 @@ function M.setup()
       fh:close()
     end,
   })
+  -- WinResized 记录仪（诊断临时件）：agent tab 内任何宽度变化记树/显示窗
+  -- 宽度与 columns——Ex 命令类 resize（vertical resize）不经 Lua API 表，
+  -- 由这里兜结果特征。抓到后随 setwidth 包装一并移除
+  vim.api.nvim_create_autocmd("WinResized", {
+    group = grp,
+    callback = function()
+      local tab = M.tab()
+      if not tab or vim.api.nvim_get_current_tabpage() ~= tab then return end
+      local t, d = tree_win(tab), display_win(tab)
+      local function w(win)
+        return win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or -1
+      end
+      local fh = io.open(vim.fn.stdpath("run") .. "/agent-tab-winresized.log", "a")
+      if fh then
+        fh:write(os.date("%H:%M:%S") .. string.format(" tree=%s display=%s cols=%s\n", w(t), w(d), vim.o.columns))
+        fh:close()
+      end
+    end,
+  })
   vim.api.nvim_create_autocmd("TabLeave", {
     group = grp,
     callback = function()

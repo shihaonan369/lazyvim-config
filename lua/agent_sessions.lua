@@ -81,19 +81,24 @@ local alt_viewport = nil
 -- 逐项对齐（wrap/list/number/relativenumber/signcolumn/foldcolumn）——显示窗
 -- 无论何时建（为已存 session 后建、vsplit 继承 LazyVim 的 signcolumn="yes"
 -- 等）都必须补齐，不能依赖 TermOpen 时机（ADR 0002 修订）
--- 定向记录仪（诊断显示窗偶发 30% 泄漏，触发源未明）：两个 30% 写入点
--- 触发即记栈回溯。抓到后移除
-local function log_resize_site(tag, win)
-  local fh = io.open(vim.fn.stdpath("run") .. "/agent-tab-resize.log", "a")
-  if not fh then return end
-  local tab, width = "?", "?"
-  pcall(function()
-    tab = vim.api.nvim_win_get_tabpage(win)
-    width = vim.api.nvim_win_get_width(win)
-  end)
-  fh:write(os.date("%H:%M:%S") .. " " .. tag .. " win=" .. win .. " tab=" .. tostring(tab)
-    .. " width_before=" .. tostring(width) .. "\n" .. debug.traceback() .. "\n")
-  fh:close()
+-- 全网记录仪（诊断显示窗偶发 30% 泄漏；点位记录仪已证明两个 30% 写入点
+-- 均无辜、且零开窗——凶手在别处）。凡 Lua 侧 nvim_win_set_width 写入 ~30%
+-- 即记栈回溯；Ex 命令类（vertical resize）不经此表，由 agent_tab 的
+-- WinResized 记录仪兜结果特征。抓到后整体移除
+do
+  local orig = vim.api.nvim_win_set_width
+  vim.api.nvim_win_set_width = function(win, width)
+    if math.abs(width - math.floor(vim.o.columns * PANE_WIDTH)) <= 3 then
+      local fh = io.open(vim.fn.stdpath("run") .. "/agent-tab-setwidth.log", "a")
+      if fh then
+        local okt, tab = pcall(vim.api.nvim_win_get_tabpage, win)
+        fh:write(os.date("%H:%M:%S") .. " win=" .. win .. " w=" .. width
+          .. " tab=" .. tostring(okt and tab or "?") .. "\n" .. debug.traceback() .. "\n")
+        fh:close()
+      end
+    end
+    return orig(win, width)
+  end
 end
 
 local function apply_term_winopts(win)
@@ -115,7 +120,6 @@ end
 local function show_pane()
   if not pane_valid() then
     local width = math.floor(vim.o.columns * PANE_WIDTH)
-    log_resize_site("show_pane-vsplit", "new")
     vim.cmd("botright " .. width .. "vsplit")
     S.pane_win = vim.api.nvim_get_current_win()
     vim.w[S.pane_win].agent_pane = true -- 窗口身份标记，winvar 随窗口存亡（docs/adr/0002）
@@ -204,7 +208,6 @@ local function main_target_win(pane)
     win = vim.api.nvim_get_current_win()
   end)
   if vim.w[pane].agent_pane then
-    log_resize_site("main_target_win-30", pane)
     vim.api.nvim_win_set_width(pane, math.floor(vim.o.columns * PANE_WIDTH))
     -- 让位 = 系统取消最大化：清掉 toggle_max_width 的还原值（keymaps.lua
     -- 拥有该 winvar），否则下次 <C-S-Right> 会还原到陈旧宽度而非重新拉满
@@ -704,17 +707,33 @@ function M.when_ready(id, fn)
       pcall(vim.api.nvim_buf_detach, buf)
       local q = s.ready_queue
       s.ready_queue = nil
-      for _, f in ipairs(q or {}) do pcall(f) end
+      ready_drain(s, q)
     end,
     on_detach = function() s.ready_armed = false end,
   })
+end
+
+-- 队列串行 drain：前一条的延时 CR 落地前，下一条的 Ctrl-U 清草稿会连带清掉
+-- 它未提交的命令文字——按各动作返回的占用时长（ms）顺延下一条
+local function ready_drain(s, q)
+  local function run_next(i)
+    local f = q[i]
+    if not f then return end
+    local ok, hold = pcall(f)
+    vim.defer_fn(function() run_next(i + 1) end,
+      (ok and type(hold) == "number" and hold or 0) + 50)
+  end
+  run_next(1)
 end
 
 -- 带名收尾：就绪队列注入 /rename（名字权威在 custom-title 回流，同 M.rename
 -- 注释——不假成功）。<leader>aN 与 skill 的 aspawn(name) 同走此口
 local function name_named(sess, name)
   if not name or name == "" then return end
-  M.when_ready(sess.id, function() M.rename(sess.id, name) end)
+  M.when_ready(sess.id, function()
+    M.rename(sess.id, name)
+    return 450 -- 占用至延时 CR 落地（300ms＋余量），下一条（投喂的 Ctrl-U）方可进场
+  end)
 end
 
 -- 适配层 ---------------------------------------------------------------
@@ -1014,8 +1033,8 @@ end
 
 -- 重命名 session（树内 r）。claude：**只发命令不落名**——名字唯一落点在
 -- custom-title 回流（claude 是权威），命令没被执行则树保持旧名，不假成功
--- （用户裁决：显示的统一性要单点）。Enter 用 CR：termopen pty 裸模式下
--- 回车是 \r，\n 不提交（M.send 的 \n 是"粘贴待审"语义，另回事）。注入走
+-- （用户裁决：显示的统一性要单点）。Enter 用 \r 不用 \n（\n 是 M.send 的
+-- "粘贴待审"语义，另回事），且 CR 与文字分包延时（详见函数内注释）。注入走
 -- 被选中 session 自己的 channel，选谁发谁。codex/opencode 无回流通道，暂
 -- 本地落名（TODO：各家斜杠命令确认后改走注入+回流）
 function M.rename(id, name)
@@ -1025,9 +1044,19 @@ function M.rename(id, name)
   if S.ptype == "claude" then
     -- \21(Ctrl-U)先清 input 草稿：盲通道下无法感知/保存用户未提交文字，
     -- 不清则命令与草稿拼接——改名失败且草稿被毁，两头不一致。取舍：罕见
-    -- 窗口（草稿未提交时来树里按 r）的草稿被牺牲，换取 rename 恒定干净执行
+    -- 窗口（草稿未提交时来树里按 r）的草稿被牺牲，换取 rename 恒定干净执行。
+    -- 文字与 CR 分包（CR 延时 300ms）：就绪初期同包紧跟的 CR 会被 TUI 吞掉、
+    -- 命令躺输入框不提交（2026-10-17 实证）；settled 后同包虽可用，分包是
+    -- 两种时机的交集安全区，注入形态保持单一（与 skill 的 arename 同款）
     local chan = vim.b[s.bufnr].terminal_job_id
-    if chan then vim.api.nvim_chan_send(chan, "\21/rename " .. name .. "\r") end
+    if chan then
+      vim.api.nvim_chan_send(chan, "\21/rename " .. name)
+      vim.defer_fn(function()
+        if vim.api.nvim_buf_is_valid(s.bufnr) then
+          pcall(vim.api.nvim_chan_send, chan, "\13")
+        end
+      end, 300)
+    end
   else
     s.name = name
     emit()
