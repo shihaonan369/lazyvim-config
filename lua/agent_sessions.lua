@@ -30,6 +30,7 @@ local S = {
   augroup = nil,
   intent = "show",  -- claude provider 桥接: "show" | "new"
   claude_cache = nil, -- { cmd_list, env }
+  pending_name = nil, -- 冷启动带名新建中转（<leader>aN 首次；claude_open 收口）
   override_once = false, -- pick_win 显式选 pane 的一次性放行（docs/adr/0002）
   follow_buf = nil, -- 领地入侵后待兑现的焦点跟随（buffer 落定在非领地窗口时送达）
 }
@@ -663,6 +664,59 @@ local function claude_spawn_cmd(cmd_list)
   return out
 end
 
+-- 就绪等待：❯（输入框）渲染 = TUI 能收按键（skill 侧同款判据）。先同步探测，
+-- 未就绪则 buf_attach 事件驱动等（与 transcript 的 fs_event 同哲学，零轮询）；
+-- 回调 FIFO 入队（先排的改名先于后排的投喂），60s 超时静默作废——名字可事后
+-- 树内 r 补。buffer 先亡（session 退出）则等监听自然散去。
+local function ready_probe(s)
+  if not s.bufnr or not vim.api.nvim_buf_is_valid(s.bufnr) then return false end
+  for _, x in ipairs(vim.api.nvim_buf_get_lines(s.bufnr, 0, -1, false)) do
+    if x:find("❯", 1, true) then return true end
+  end
+  return false
+end
+
+function M.when_ready(id, fn)
+  local _, s = by_id(id)
+  if not s or type(fn) ~= "function" then return end
+  if s.ready or ready_probe(s) then
+    s.ready = true
+    fn()
+    return
+  end
+  s.ready_queue = s.ready_queue or {}
+  s.ready_queue[#s.ready_queue + 1] = fn
+  if s.ready_armed then return end
+  s.ready_armed = true
+  local timer = vim.fn.timer_start(60000, function()
+    if s.ready_armed ~= true then return end
+    s.ready_armed = false
+    s.ready_queue = nil
+    pcall(vim.api.nvim_buf_detach, s.bufnr)
+  end)
+  vim.api.nvim_buf_attach(s.bufnr, false, {
+    on_lines = function(_, buf)
+      if not s.ready_armed or not vim.api.nvim_buf_is_valid(buf) then return end
+      if not ready_probe(s) then return end
+      s.ready_armed = false
+      s.ready = true
+      vim.fn.timer_stop(timer)
+      pcall(vim.api.nvim_buf_detach, buf)
+      local q = s.ready_queue
+      s.ready_queue = nil
+      for _, f in ipairs(q or {}) do pcall(f) end
+    end,
+    on_detach = function() s.ready_armed = false end,
+  })
+end
+
+-- 带名收尾：就绪队列注入 /rename（名字权威在 custom-title 回流，同 M.rename
+-- 注释——不假成功）。<leader>aN 与 skill 的 aspawn(name) 同走此口
+local function name_named(sess, name)
+  if not name or name == "" then return end
+  M.when_ready(sess.id, function() M.rename(sess.id, name) end)
+end
+
 -- 适配层 ---------------------------------------------------------------
 
 local adapters = {}
@@ -683,21 +737,23 @@ adapters.opencode = {
 }
 
 adapters.claude = {
-  new = function()
+  new = function(name)
     if S.claude_cache then
       local base = { S.claude_cache.cmd_list[1] }
       local sess = spawn(claude_spawn_cmd(base), S.claude_cache.env)
       display(sess.id, true)
+      name_named(sess, name)
     else
       -- provider 从未被调过，让插件自己构造 cmd/env 走一次 provider.open
       S.intent = "new"
+      S.pending_name = name
       vim.cmd("ClaudeCode")
     end
   end,
 }
 
 -- claude provider 桥接入口（由 claudecode.lua 的 provider table 调用）
-function M.claude_open(cmd_string, env, focus)
+function M.claude_open(cmd_string, env, focus, name)
   local cmd_list = vim.split(cmd_string, "%s+")
   env = claude_spawn_env(env)
   S.claude_cache = { cmd_list = cmd_list, env = env }
@@ -706,6 +762,8 @@ function M.claude_open(cmd_string, env, focus)
   if wants_new or #S.sessions == 0 then
     local sess = spawn(claude_spawn_cmd(cmd_list), env)
     display(sess.id, focus ~= false)
+    name_named(sess, name or S.pending_name)
+    S.pending_name = nil
   else
     display(S.current, focus ~= false)
   end
@@ -850,9 +908,10 @@ function M.toggle()
   end
 end
 
-function M.new()
+function M.new(name)
+  -- name 仅 claude 适配器认（带名新建，<leader>aN）；codex/opencode 无回流通道
   local adapter = adapters[S.ptype]
-  if adapter then adapter.new() end
+  if adapter then adapter.new(name) end
 end
 
 function M.cycle(dir)

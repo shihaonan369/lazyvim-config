@@ -61,6 +61,15 @@ return {
     { "<C-a>", function() agent.toggle() end, desc = "Toggle agent pane", mode = { "n", "t" } },
     { "<leader>aa", function() agent.picker() end, desc = "Agent sessions" },
     { "<leader>an", function() agent.new() end, desc = "New agent session" },
+    {
+      "<leader>aN",
+      function()
+        vim.ui.input({ prompt = "Session name: " }, function(name)
+          if name and name:find("%S") then agent.new(vim.trim(name)) end
+        end)
+      end,
+      desc = "New agent session (named)",
+    },
     { "<leader>aC", "<cmd>ClaudeCode --continue<cr>", desc = "Continue Claude" },
     { "<leader>aR", "<cmd>ClaudeCode --resume<cr>", desc = "Resume Claude" },
     { "<leader>aM", "<cmd>ClaudeCodeSelectModel<cr>", desc = "Select Model" },
