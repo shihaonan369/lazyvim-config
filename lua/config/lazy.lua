@@ -14,6 +14,42 @@ if not (vim.uv or vim.loop).fs_stat(lazypath) then
 end
 vim.opt.rtp:prepend(lazypath)
 
+-- 本仓自带 skills（skills/<name>/ 即 skill 实体源）自愈挂载到
+-- ~/.claude/skills/<name>：缺则建、断链重建、他人实体（真实目录/外指链）
+-- 不碰只提醒（docs/adr/0006）。克隆＋起 nvim 即完成，环境重建零手工。
+-- [skill-mount-begin/end] 区间供 scripts/test-skill-mount.lua 提取实测
+do -- [skill-mount-begin]
+  local skill_src = vim.fn.stdpath("config") .. "/skills"
+  if vim.uv.fs_stat(skill_src) then
+    local dst_root = vim.fn.expand("~/.claude/skills")
+    pcall(vim.fn.mkdir, dst_root, "p")
+    for name in vim.fs.dir(skill_src) do
+      local src = skill_src .. "/" .. name
+      local _, st = pcall(vim.uv.fs_stat, src)
+      if st and st.type == "directory" then
+        local link = dst_root .. "/" .. name
+        local _, lst = pcall(vim.uv.fs_lstat, link)
+        if not lst then -- 名下无物：直接建
+          if vim.uv.fs_symlink(src, link) then
+            vim.notify("skills 自愈挂载: " .. name)
+          end
+        elseif lst.type == "link" then
+          -- 断链（目标已消失）重建；外指有效链是有意接线，不动
+          local _, target = pcall(vim.uv.fs_readlink, link)
+          if target ~= src and not vim.uv.fs_stat(link) then
+            pcall(vim.uv.fs_unlink, link)
+            if vim.uv.fs_symlink(src, link) then
+              vim.notify("skills 自愈重建断链: " .. name)
+            end
+          end
+        else -- 真实文件/目录等他人实体：不碰，提醒一次
+          vim.notify("~/.claude/skills/" .. name .. " 已有非本仓实体，跳过", vim.log.levels.WARN)
+        end
+      end
+    end
+  end
+end -- [skill-mount-end]
+
 require("lazy").setup({
   spec = {
     -- add LazyVim and import its plugins
