@@ -44,8 +44,9 @@ call '_G.adelete(7)'        # 优雅退出（/exit 注入）
 - **转义**：`\r`(CR)/`\21`(Ctrl-U)/`\27[200~`(括号粘贴) 只允许写在 asend.lua
   里。调用侧内联这些序列会被 bash→vim 双层转义半路展开（`\r` 炸 E5107、
   `\21` 被吞变字面量）。传内容一律 `[[...]]` 或文件路径。
-- **文字与 CR 必须分开发**（asend.lua 内已用 defer_fn 隔开）——同包紧跟的 CR
-  会被 TUI 吞掉，prompt 躺输入框不提交。
+- **文字与 CR 必须分开发**（注入已统一分包：M.rename/arename 300ms、
+  aprompt 400ms 延时 CR；队列按占用时长串行）——同包紧跟的 CR 会被 TUI
+  吞掉，命令躺输入框不提交。
 - **禁用 `agent_sessions.M.send()`**：它附带 M.focus() 抢用户焦点；本 skill 的
   API 全部 chansend 直注，不碰焦点。
 - 命名回流滞后：claude 侧 `custom-title.json` 即时落名，nvim 树/pane 的名字靠

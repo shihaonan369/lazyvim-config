@@ -39,18 +39,16 @@ _G.aready = function(id)
   return 'wait'
 end
 
--- 会话命名（/rename 注入，claude 侧 custom-title.json 即落；nvim 树回流有滞后）
+-- 会话命名（/rename 注入，claude 侧 custom-title.json 即落；nvim 树回流有
+-- 滞后）。注入本体在 AS.rename（文字与 CR 分包延时），此处只做入口
 _G.arename = function(id, name)
-  local ch = chan_of(id)
-  if not ch then return 'nobuf' end
-  send(ch, '\21/rename ' .. name)
-  vim.defer_fn(function() send(ch, '\13') end, 300)
+  AS.rename(id, name)
   return 'ok'
 end
 
--- 首发 prompt：AS.when_ready 入队（就绪即投喂；与改名同队 FIFO，先改名后
--- 投喂）。投喂 = Ctrl-U 清草稿 → 括号粘贴（多行安全）→ 延时 CR 提交。
--- 文字与 CR 必须分开发（TUI 会吞同包紧跟的 CR）。
+-- 首发 prompt：AS.when_ready 入队（就绪即投喂；与改名同队 FIFO 串行）。
+-- 投喂 = Ctrl-U 清草稿 → 括号粘贴（多行安全）→ 延时 CR 提交。文字与 CR
+-- 必须分开发（TUI 会吞同包紧跟的 CR）；返回占用时长，队列顺延下一条
 _G.aprompt_file = function(id, path)
   AS.when_ready(id, function()
     local ch = chan_of(id)
@@ -59,6 +57,7 @@ _G.aprompt_file = function(id, path)
     send(ch, '\21')
     send(ch, '\27[200~' .. table.concat(lines, '\n') .. '\27[201~')
     vim.defer_fn(function() send(ch, '\13') end, 400)
+    return 550 -- 占用至延时 CR 落地（400ms＋余量）
   end)
   return 'ok'
 end

@@ -679,6 +679,19 @@ local function ready_probe(s)
   return false
 end
 
+-- 队列串行 drain：前一条的延时 CR 落地前，下一条的 Ctrl-U 清草稿会连带清掉
+-- 它未提交的命令文字——按各动作返回的占用时长（ms）顺延下一条
+local function ready_drain(s, q)
+  local function run_next(i)
+    local f = q[i]
+    if not f then return end
+    local ok, hold = pcall(f)
+    vim.defer_fn(function() run_next(i + 1) end,
+      (ok and type(hold) == "number" and hold or 0) + 50)
+  end
+  run_next(1)
+end
+
 function M.when_ready(id, fn)
   local _, s = by_id(id)
   if not s or type(fn) ~= "function" then return end
@@ -711,19 +724,6 @@ function M.when_ready(id, fn)
     end,
     on_detach = function() s.ready_armed = false end,
   })
-end
-
--- 队列串行 drain：前一条的延时 CR 落地前，下一条的 Ctrl-U 清草稿会连带清掉
--- 它未提交的命令文字——按各动作返回的占用时长（ms）顺延下一条
-local function ready_drain(s, q)
-  local function run_next(i)
-    local f = q[i]
-    if not f then return end
-    local ok, hold = pcall(f)
-    vim.defer_fn(function() run_next(i + 1) end,
-      (ok and type(hold) == "number" and hold or 0) + 50)
-  end
-  run_next(1)
 end
 
 -- 带名收尾：就绪队列注入 /rename（名字权威在 custom-title 回流，同 M.rename
