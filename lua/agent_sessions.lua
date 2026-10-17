@@ -456,6 +456,17 @@ local function status_file()
   return vim.fn.stdpath("run") .. "/agent-status.jsonl"
 end
 
+-- rename 链路记录仪（诊断临时件，抓完删）：注入/就绪/回流三段留痕，
+-- 复现"rename 后树名不变"后查 stdpath("run")/agent-rename-trace.log
+local function rt_log(msg)
+  local fh = io.open(vim.fn.stdpath("run") .. "/agent-rename-trace.log", "a")
+  if fh then
+    fh:write(string.format("%s.%03d n%d %s\n",
+      os.date("%m-%d %H:%M:%S"), vim.loop.now() % 1000, vim.fn.getpid(), msg))
+    fh:close()
+  end
+end
+
 -- claude /rename → 名字同步（docs/adr/0003 修订）：SessionStart hook 把
 -- transcript 路径报进邮箱；这里 luv 盯 transcript 增量，扫 {"type":
 -- "custom-title","customTitle":…} 行（claude 内部格式，失效静默降级）；
@@ -463,6 +474,7 @@ end
 -- 全程事件驱动零轮询，与状态邮箱同一风格
 local function name_apply(s, title)
   if type(title) == "string" and title ~= "" and title ~= s.name then
+    rt_log(string.format("apply id=%s old=%s new=%s", s.id, tostring(s.name), title))
     s.name = title
     emit()
   end
@@ -472,7 +484,7 @@ end
 -- 三处调用：fs_event 回调、登记时、每条状态事件（搭车重查）——macOS
 -- FSEvents 偶发丢通知，而"补读追赶"依赖后续写入；rename 恰是末条时会
 -- 永远漏。状态事件高频（working/idle 来回切），搭车一次自愈
-local function tw_drain(s)
+local function tw_drain(s, via)
   if not s.tw_path then return end
   local fh = vim.uv.fs_open(s.tw_path, "r", 384)
   if not fh then return end
@@ -484,6 +496,7 @@ local function tw_drain(s)
       if data then
         s.tw_off = s.tw_off + #data
         s.tw_partial = s.tw_partial .. data
+        rt_log(string.format("tw id=%s via=%s bytes=%d", s.id, via or "?", #data))
         -- 索引推进：逐行 sub 尾串是 O(行数×文件大小)（实测 9.9MB/3 万行 13s）
         local pos = 1
         while true do
@@ -493,7 +506,11 @@ local function tw_drain(s)
           pos = nl + 1
           if line:find('"custom-title"', 1, true) then
             local ok, ev = pcall(vim.json.decode, line)
-            if ok and type(ev) == "table" then name_apply(s, ev.customTitle) end
+            if ok and type(ev) == "table" then
+              name_apply(s, ev.customTitle)
+            else
+              rt_log("tw decode-fail id=" .. s.id .. " line=" .. line:sub(1, 120))
+            end
           end
         end
         s.tw_partial = s.tw_partial:sub(pos)
@@ -509,12 +526,18 @@ local function apply_custom_title_file(s, transcript)
   local sid = vim.fn.fnamemodify(transcript, ":t:r")
   local ct = vim.fn.fnamemodify(transcript, ":h") .. "/" .. sid .. "/custom-title.json"
   local fd = vim.uv.fs_open(ct, "r", 384)
-  if not fd then return end
+  if not fd then
+    rt_log("ct absent id=" .. s.id)
+    return
+  end
   local stat = vim.uv.fs_fstat(fd)
   local data = stat and stat.size > 0 and vim.uv.fs_read(fd, stat.size, 0)
   vim.uv.fs_close(fd)
   local ok, obj = pcall(vim.json.decode, data or "")
-  if ok and type(obj) == "table" then name_apply(s, obj.customTitle) end
+  if ok and type(obj) == "table" then
+    rt_log("ct read id=" .. s.id .. " title=" .. tostring(obj.customTitle))
+    name_apply(s, obj.customTitle)
+  end
 end
 
 local function watch_transcript(s, transcript)
@@ -525,6 +548,7 @@ local function watch_transcript(s, transcript)
   local st = vim.uv.fs_stat(transcript)
   s.tw_off = st and st.size or 0
   s.tw_partial = ""
+  rt_log(string.format("register id=%s tw=%s off=%d", s.id, transcript, s.tw_off or -1))
   apply_custom_title_file(s, transcript)
   if s.tw_handle then
     s.tw_handle:stop()
@@ -532,7 +556,7 @@ local function watch_transcript(s, transcript)
   end
   s.tw_handle = vim.uv.new_fs_event()
   s.tw_handle:start(transcript, {}, vim.schedule_wrap(function()
-    tw_drain(s)
+    tw_drain(s, "fsevent")
   end))
 end
 
@@ -543,7 +567,7 @@ local function status_apply(line)
     if s.tag == ev.tag then
       if STATE_HL[ev.state] then -- 只认统一状态词表
         s.state = ev.state
-        tw_drain(s) -- 搭车重查：补 FSEvents 丢通知的漏（见 tw_drain 注释）
+        tw_drain(s, "status") -- 搭车重查：补 FSEvents 丢通知的漏（见 tw_drain 注释）
       elseif ev.sid and ev.transcript then -- SessionStart 身份上报（名字同步）
         watch_transcript(s, ev.transcript)
       end
@@ -686,6 +710,7 @@ local function ready_drain(s, q)
     local f = q[i]
     if not f then return end
     local ok, hold = pcall(f)
+    rt_log(string.format("drain id=%s i=%d ok=%s hold=%s", s.id, i, tostring(ok), tostring(hold)))
     vim.defer_fn(function() run_next(i + 1) end,
       (ok and type(hold) == "number" and hold or 0) + 50)
   end
@@ -707,6 +732,7 @@ function M.when_ready(id, fn)
   local timer = vim.fn.timer_start(60000, function()
     if s.ready_armed ~= true then return end
     s.ready_armed = false
+    rt_log("ready timeout id=" .. s.id .. " qlen=" .. #(s.ready_queue or {}))
     s.ready_queue = nil
     pcall(vim.api.nvim_buf_detach, s.bufnr)
   end)
@@ -718,6 +744,7 @@ function M.when_ready(id, fn)
       s.ready = true
       vim.fn.timer_stop(timer)
       pcall(vim.api.nvim_buf_detach, buf)
+      rt_log("ready fire id=" .. s.id .. " qlen=" .. #(s.ready_queue or {}))
       local q = s.ready_queue
       s.ready_queue = nil
       ready_drain(s, q)
@@ -1049,11 +1076,15 @@ function M.rename(id, name)
     -- 命令躺输入框不提交（2026-10-17 实证）；settled 后同包虽可用，分包是
     -- 两种时机的交集安全区，注入形态保持单一（与 skill 的 arename 同款）
     local chan = vim.b[s.bufnr].terminal_job_id
+    rt_log(string.format("rename id=%s name=%s chan=%s", s.id, name, tostring(chan)))
     if chan then
       vim.api.nvim_chan_send(chan, "\21/rename " .. name)
       vim.defer_fn(function()
         if vim.api.nvim_buf_is_valid(s.bufnr) then
           pcall(vim.api.nvim_chan_send, chan, "\13")
+          rt_log("cr sent id=" .. s.id)
+        else
+          rt_log("cr dropped(buf dead) id=" .. s.id)
         end
       end, 300)
     end
