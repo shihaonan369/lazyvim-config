@@ -80,6 +80,21 @@ local alt_viewport = nil
 -- 逐项对齐（wrap/list/number/relativenumber/signcolumn/foldcolumn）——显示窗
 -- 无论何时建（为已存 session 后建、vsplit 继承 LazyVim 的 signcolumn="yes"
 -- 等）都必须补齐，不能依赖 TermOpen 时机（ADR 0002 修订）
+-- 定向记录仪（诊断显示窗偶发 30% 泄漏，触发源未明）：两个 30% 写入点
+-- 触发即记栈回溯。抓到后移除
+local function log_resize_site(tag, win)
+  local fh = io.open(vim.fn.stdpath("run") .. "/agent-tab-resize.log", "a")
+  if not fh then return end
+  local tab, width = "?", "?"
+  pcall(function()
+    tab = vim.api.nvim_win_get_tabpage(win)
+    width = vim.api.nvim_win_get_width(win)
+  end)
+  fh:write(os.date("%H:%M:%S") .. " " .. tag .. " win=" .. win .. " tab=" .. tostring(tab)
+    .. " width_before=" .. tostring(width) .. "\n" .. debug.traceback() .. "\n")
+  fh:close()
+end
+
 local function apply_term_winopts(win)
   vim.wo[win].wrap = false
   vim.wo[win].list = false
@@ -99,6 +114,7 @@ end
 local function show_pane()
   if not pane_valid() then
     local width = math.floor(vim.o.columns * PANE_WIDTH)
+    log_resize_site("show_pane-vsplit", "new")
     vim.cmd("botright " .. width .. "vsplit")
     S.pane_win = vim.api.nvim_get_current_win()
     vim.w[S.pane_win].agent_pane = true -- 窗口身份标记，winvar 随窗口存亡（docs/adr/0002）
@@ -187,6 +203,7 @@ local function main_target_win(pane)
     win = vim.api.nvim_get_current_win()
   end)
   if vim.w[pane].agent_pane then
+    log_resize_site("main_target_win-30", pane)
     vim.api.nvim_win_set_width(pane, math.floor(vim.o.columns * PANE_WIDTH))
     -- 让位 = 系统取消最大化：清掉 toggle_max_width 的还原值（keymaps.lua
     -- 拥有该 winvar），否则下次 <C-S-Right> 会还原到陈旧宽度而非重新拉满
