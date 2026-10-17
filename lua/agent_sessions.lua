@@ -463,16 +463,19 @@ local function tw_drain(s)
       if data then
         s.tw_off = s.tw_off + #data
         s.tw_partial = s.tw_partial .. data
+        -- 索引推进：逐行 sub 尾串是 O(行数×文件大小)（实测 9.9MB/3 万行 13s）
+        local pos = 1
         while true do
-          local nl = s.tw_partial:find("\n", 1, true)
+          local nl = s.tw_partial:find("\n", pos, true)
           if not nl then break end
-          local line = s.tw_partial:sub(1, nl - 1)
-          s.tw_partial = s.tw_partial:sub(nl + 1)
+          local line = s.tw_partial:sub(pos, nl - 1)
+          pos = nl + 1
           if line:find('"custom-title"', 1, true) then
             local ok, ev = pcall(vim.json.decode, line)
             if ok and type(ev) == "table" then name_apply(s, ev.customTitle) end
           end
         end
+        s.tw_partial = s.tw_partial:sub(pos)
       end
     end
   end
@@ -495,7 +498,12 @@ end
 
 local function watch_transcript(s, transcript)
   s.tw_path = transcript
-  s.tw_off, s.tw_partial = 0, ""
+  -- 登记即 seek 到文件尾：历史不扫——大会话全量 drain 同步阻塞秒级（实测
+  -- 9.9MB/13s，"resume 变慢"的根因）；resume 场景的名字由 custom-title.json
+  -- 快照负责，活着的 rename 从尾之后由 fs_event 接管
+  local st = vim.uv.fs_stat(transcript)
+  s.tw_off = st and st.size or 0
+  s.tw_partial = ""
   apply_custom_title_file(s, transcript)
   if s.tw_handle then
     s.tw_handle:stop()
@@ -505,7 +513,6 @@ local function watch_transcript(s, transcript)
   s.tw_handle:start(transcript, {}, vim.schedule_wrap(function()
     tw_drain(s)
   end))
-  tw_drain(s) -- 登记即读：监听激活前的既有内容（含 resume 场景）
 end
 
 local function status_apply(line)
