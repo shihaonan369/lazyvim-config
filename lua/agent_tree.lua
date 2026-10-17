@@ -4,12 +4,15 @@
 -- 刷新由 agent_tab 经 User AgentSessionsChanged → manager.refresh 驱动，
 -- 与状态管线同源（docs/adr/0003），零轮询。
 -- 外观：状态机器人图标在每项前方（表情×实心/空心孪生 + 状态色，与
--- statusline/picker 同一隐喻）；顺序恒为存活序——切换不重排，当前项只靠
--- 实心图标 + 高亮标识（用户裁决 2026-10-15；词汇表：session 用位置编号
--- #n 称呼，顺序稳定编号才稳定）。
+-- statusline/picker 同一隐喻）；顺序恒为存活序——切换不重排，当前项标识 =
+-- 实心图标 + 名字高亮 + 光标行跟随（2026-10-17 补：CursorLine 是树里最
+-- 醒目的行，切换后不跟上即"高亮行没同步"；用户裁决 2026-10-15 的不重排
+-- 不变。词汇表：session 用位置编号 #n 称呼，顺序稳定编号才稳定）。
 local manager = require("neo-tree.sources.manager")
 local renderer = require("neo-tree.ui.renderer")
 local agent = require("agent_sessions")
+
+local synced_cursor -- 光标已跟到的 current id（见 navigate 尾部的跟随逻辑）
 
 local M = {
   name = "agent_tree",
@@ -130,6 +133,18 @@ M.navigate = function(state)
     }
   end
   renderer.show_nodes(items, state)
+  -- 光标行跟随 current：树里最醒目的行是 CursorLine，图标/名字高亮之外
+  -- 它也得在当前行上——否则显示窗 </> 切换后"高亮行没同步"（用户实测
+  -- 2026-10-17）。幂等门 synced_cursor：只在 current 变化时挪，状态/改名
+  -- 等高频 emit 不打扰。树被浏览时无需守护：浏览中 current 不变（</> 在
+  -- 显示窗、树内无切换键），唯一例外 TermClose 顺延——跟过去是对的，
+  -- 原来那行的 session 已经没了
+  local cur = agent.current_id()
+  if cur and cur ~= synced_cursor then
+    if renderer.focus_node(state, "session:" .. cur, true) then
+      synced_cursor = cur
+    end
+  end
 end
 
 M.refresh = function()

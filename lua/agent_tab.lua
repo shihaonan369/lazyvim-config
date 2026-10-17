@@ -383,7 +383,13 @@ function M.setup()
         hide_keys()
         local tab = vim.api.nvim_get_current_tabpage()
         if last_tab and last_tab ~= tab then vim.t[tab].return_tab = last_tab end
-        vim.schedule(function() ensure_tree(tab) end)
+        vim.schedule(function()
+          ensure_tree(tab)
+          -- 离场补齐：manager.refresh 只刷新当前 tab 的树状态，人在主 tab
+          -- pane 上 </> 切换时 agent tab 的树只被记 dirty，回来此刻对齐
+          -- 当下（含光标跟随，见 agent_tree.navigate）
+          pcall(function() require("neo-tree.sources.manager").refresh("agent_tree") end)
+        end)
       else
         if vim.fn.maparg("<leader>at", "n") == "" then map_at() end
         restore_keys()
