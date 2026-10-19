@@ -138,5 +138,34 @@ end))
 A.rename(A.list()[1].id, "本地改名")
 check("r 只发命令不本地落名（claude 回流单点）", A.list()[1].name == "新名字")
 
+-- transcript 晚出生（2026-10-19 bug）：登记时文件未生 → 盯父目录等出生，
+-- 出生后 fsevent 直达（不再依赖状态事件搭车）；出生后的追加也走文件级 fsevent
+local tdir2 = vim.fn.stdpath("run") .. "/agent-rename-born"
+vim.fn.mkdir(tdir2, "p")
+local tpath2 = tdir2 .. "/sid77.jsonl"
+do
+  local fh = assert(io.open(file, "a"))
+  fh:write(string.format('{"tag":"%s","sid":"sid77","transcript":"%s"}\n', tag1, tpath2))
+  fh:close()
+end
+vim.wait(300, function() return false end) -- 监视器换靶落定
+do
+  local fh = assert(io.open(tpath2, "w"))
+  fh:write('{"type":"custom-title","customTitle":"晚生","sessionId":"sid77"}\n')
+  fh:close()
+end
+check("transcript 晚出生：fsevent-born 直达回流", vim.wait(2000, function()
+  return A.list()[1] and A.list()[1].name == "晚生"
+end))
+vim.wait(600, function() return false end) -- 换靶落定（macOS FSEvents 重臂延迟；inotify 无此问题）
+do
+  local fh = assert(io.open(tpath2, "a"))
+  fh:write('{"type":"custom-title","customTitle":"晚生追加","sessionId":"sid77"}\n')
+  fh:close()
+end
+check("出生后文件级 fsevent 续流", vim.wait(2000, function()
+  return A.list()[1] and A.list()[1].name == "晚生追加"
+end))
+
 print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
 vim.cmd(#fails == 0 and "qa!" or "cq")
