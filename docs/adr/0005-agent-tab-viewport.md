@@ -82,3 +82,14 @@ sync）。两个防乒乓细节，缺一即死循环：redirect 可重入——s
 树窗重建须立即换占位 buffer——vsplit 从显示窗继承 agent terminal（BWE 不响、
 sweep 清退成 blank），blank 落进树窗又触发域守卫，无限乒乓。
 回归：scripts/test-agent-tab.lua 判据 4b。
+
+## 修订（2026-10-19）：显示窗宽度守卫（30% 泄漏案终结）
+
+三天偶发"显示窗变 ~30%"由全网记录仪定罪：claudecode.nvim 的 diff 清理
+（diff.lua `_cleanup_diff_state`）在 diff 关闭后把"claudecode 终端窗"强写回
+`split_width_percentage`（默认 0.30）——插件假设天下只有一个 30% pane，多视口
+下它找到的当前 claude 窗是 agent tab 显示窗（239 列时写 71，实测树随之
+40→167）。修复：`nvim_win_set_width` 表级包装常驻守卫——显示窗宽度是
+"列宽−树 40"的涌现值，任何 Lua 侧直写一律吞掉（用户手动 resize 走 Ex
+命令不经此表，不受影响，宽度稳定法不破）。主 pane 的 30% 恢复是插件
+自家设计且与 pane 几何一致，不拦。回归：test-agent-tab.lua 判据 1e。

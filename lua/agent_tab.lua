@@ -287,6 +287,14 @@ local function restore_keys()
   end
 end
 
+-- 显示窗宽度守卫入口（agent_sessions 的 nvim_win_set_width 包装调用）：
+-- 显示窗宽度是布局涌现值，拒绝一切外部直写（claudecode diff 清理曾强写
+-- 30%，2026-10-19 案；见 agent_sessions 同名注释）
+function M.guard_display_width(win)
+  local tab = M.tab()
+  return tab ~= nil and win == display_win(tab)
+end
+
 -- <leader>at：agent tab 内撤映射（no-op 且 which-key 不列不可用键），离开恢复
 local function map_at()
   vim.keymap.set("n", "<leader>at", function() M.toggle() end, { desc = "Agent tab", silent = true })
@@ -353,41 +361,9 @@ function M.setup()
     group = grp,
     callback = on_buf_enter, -- agent tab 只收 agent 域：file buffer 挪回来源 tab
   })
-  -- 窗口出生记录仪（诊断"显示窗偶发变窄"的触发源，用户尚不清楚条件）：
-  -- agent tab 内每次开窗，把创建栈回溯落进 run 目录日志。抓到真凶后可移除
-  vim.api.nvim_create_autocmd("WinNew", {
-    group = grp,
-    callback = function()
-      local tab = vim.api.nvim_get_current_tabpage()
-      if not is_agent_tab(tab) then return end
-      local log = vim.fn.stdpath("run") .. "/agent-tab-winnew.log"
-      local fh = io.open(log, "a")
-      if not fh then return end
-      fh:write(os.date("%H:%M:%S") .. " WinNew wins=" .. #vim.api.nvim_tabpage_list_wins(tab)
-        .. " display_w=" .. (display_win(tab) and vim.api.nvim_win_get_width(display_win(tab)) or "?")
-        .. "\n" .. debug.traceback() .. "\n")
-      fh:close()
-    end,
-  })
-  -- WinResized 记录仪（诊断临时件）：agent tab 内任何宽度变化记树/显示窗
-  -- 宽度与 columns——Ex 命令类 resize（vertical resize）不经 Lua API 表，
-  -- 由这里兜结果特征。抓到后随 setwidth 包装一并移除
-  vim.api.nvim_create_autocmd("WinResized", {
-    group = grp,
-    callback = function()
-      local tab = M.tab()
-      if not tab or vim.api.nvim_get_current_tabpage() ~= tab then return end
-      local t, d = tree_win(tab), display_win(tab)
-      local function w(win)
-        return win and vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_width(win) or -1
-      end
-      local fh = io.open(vim.fn.stdpath("run") .. "/agent-tab-winresized.log", "a")
-      if fh then
-        fh:write(os.date("%H:%M:%S") .. string.format(" tree=%s display=%s cols=%s\n", w(t), w(d), vim.o.columns))
-        fh:close()
-      end
-    end,
-  })
+  -- （诊断记录仪已随真凶落网退役：WinNew/WinResized 两件。2026-10-19 案
+  -- 定罪 claudecode.nvim diff 清理强写显示窗 30%——守卫见 guard_display_width
+  -- 与 agent_sessions 的 nvim_win_set_width 包装）
   vim.api.nvim_create_autocmd("TabLeave", {
     group = grp,
     callback = function()

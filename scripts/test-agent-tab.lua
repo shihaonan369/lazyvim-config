@@ -97,6 +97,11 @@ for _, w in ipairs(tab_wins()) do
   if vim.w[w].agent_tree == true then tw_w = w end
 end
 check("wincmd = 后树宽仍为 40", vim.api.nvim_win_get_width(tw_w) == 40)
+-- 判据 1e（2026-10-19 案）：显示窗宽度守卫——外部直写一律吞掉
+-- （claudecode diff 清理曾强写 30%；用户手动 resize 走 Ex 命令不经此表）
+local dwin_w_before = vim.api.nvim_win_get_width(dwin)
+vim.api.nvim_win_set_width(dwin, math.floor(vim.o.columns * 0.30))
+check("外部 set_width 直写显示窗被拒绝", vim.api.nvim_win_get_width(dwin) == dwin_w_before)
 check("tab 内 <leader>at 已撤（which-key 不列）", vim.fn.maparg("<leader>at", "n") == "")
 check("tab 内 <leader>as 已撤（捕获-重放机制）", vim.fn.maparg("<leader>as", "n") == "")
 check("tab 内不动 showtabline（buffer 标签由 custom_filter 滤）", vim.o.showtabline == tabline_before)

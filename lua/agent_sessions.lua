@@ -81,21 +81,18 @@ local alt_viewport = nil
 -- 逐项对齐（wrap/list/number/relativenumber/signcolumn/foldcolumn）——显示窗
 -- 无论何时建（为已存 session 后建、vsplit 继承 LazyVim 的 signcolumn="yes"
 -- 等）都必须补齐，不能依赖 TermOpen 时机（ADR 0002 修订）
--- 全网记录仪（诊断显示窗偶发 30% 泄漏；点位记录仪已证明两个 30% 写入点
--- 均无辜、且零开窗——凶手在别处）。凡 Lua 侧 nvim_win_set_width 写入 ~30%
--- 即记栈回溯；Ex 命令类（vertical resize）不经此表，由 agent_tab 的
--- WinResized 记录仪兜结果特征。抓到后整体移除
+-- 显示窗宽度守卫（真凶落网后由诊断包装转正，2026-10-19 案）：agent tab
+-- 显示窗的宽度是"列宽−树 40"的涌现值，任何直接 set_width 都是越权——
+-- claudecode.nvim 的 diff 清理曾把它强写回自家 pane 的 30%（栈：
+-- diff.lua:_cleanup_diff_state，经 TCP 工具调用触发，实测树随之吞宽 40→167）。
+-- 拒绝之；用户手动 resize（vertical resize 等 Ex 命令）不经 Lua API 表，
+-- 不受影响（宽度稳定法：只有手动能改）
 do
   local orig = vim.api.nvim_win_set_width
   vim.api.nvim_win_set_width = function(win, width)
-    if math.abs(width - math.floor(vim.o.columns * PANE_WIDTH)) <= 3 then
-      local fh = io.open(vim.fn.stdpath("run") .. "/agent-tab-setwidth.log", "a")
-      if fh then
-        local okt, tab = pcall(vim.api.nvim_win_get_tabpage, win)
-        fh:write(os.date("%H:%M:%S") .. " win=" .. win .. " w=" .. width
-          .. " tab=" .. tostring(okt and tab or "?") .. "\n" .. debug.traceback() .. "\n")
-        fh:close()
-      end
+    local at = package.loaded["agent_tab"]
+    if at and at.guard_display_width and at.guard_display_width(win) then
+      return -- 显示窗：吞掉外部直写
     end
     return orig(win, width)
   end
@@ -545,19 +542,41 @@ local function watch_transcript(s, transcript)
   -- 登记即 seek 到文件尾：历史不扫——大会话全量 drain 同步阻塞秒级（实测
   -- 9.9MB/13s，"resume 变慢"的根因）；resume 场景的名字由 custom-title.json
   -- 快照负责，活着的 rename 从尾之后由 fs_event 接管
+  local function arm(target, cb)
+    if s.tw_handle then
+      s.tw_handle:stop()
+      s.tw_handle:close()
+    end
+    s.tw_handle = vim.uv.new_fs_event()
+    s.tw_handle:start(target, {}, vim.schedule_wrap(cb))
+  end
+  local function arm_file()
+    arm(transcript, function() tw_drain(s, "fsevent") end)
+  end
+
   local st = vim.uv.fs_stat(transcript)
   s.tw_off = st and st.size or 0
   s.tw_partial = ""
-  rt_log(string.format("register id=%s tw=%s off=%d", s.id, transcript, s.tw_off or -1))
+  rt_log(string.format("register id=%s tw=%s off=%d born=%s",
+    s.id, transcript, s.tw_off or -1, tostring(st ~= nil)))
   apply_custom_title_file(s, transcript)
-  if s.tw_handle then
-    s.tw_handle:stop()
-    s.tw_handle:close()
+  if st then
+    arm_file()
+  else
+    -- fs_event 只认既有路径（同状态邮箱"先落地"的同一条教训；2026-10-19
+    -- 实证：transcript 懒建的会话监视器从未建立，回流全靠状态事件搭车，
+    -- 闲置无翻转即"树名不变"）。未生时盯父目录等出生事件，出生即换靶
+    -- 文件本体——目录事件不含子文件追加写，不能只盯目录
+    local dir = vim.fn.fnamemodify(transcript, ":h")
+    local base = vim.fn.fnamemodify(transcript, ":t")
+    arm(dir, function(_, fname)
+      if fname ~= nil and fname ~= base then return end
+      if not vim.uv.fs_stat(transcript) then return end
+      rt_log("born id=" .. s.id)
+      arm_file()
+      tw_drain(s, "fsevent-born")
+    end)
   end
-  s.tw_handle = vim.uv.new_fs_event()
-  s.tw_handle:start(transcript, {}, vim.schedule_wrap(function()
-    tw_drain(s, "fsevent")
-  end))
 end
 
 local function status_apply(line)
