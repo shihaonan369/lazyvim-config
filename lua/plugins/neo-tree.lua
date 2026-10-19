@@ -35,6 +35,9 @@ return {
           ["<"] = "none",
           [">"] = "none",
           ["<C-;>"] = "none",
+          -- invert_selection：容器侧新版 neo-tree 的默认（defaults.lua
+          -- <C-S-i>），本源未精选该 common 命令，不 none 会按一次 warn 一次
+          ["<C-S-i>"] = "none",
           ["<C-b>"] = "none",
           ["<C-f>"] = "none",
           ["<C-r>"] = "none",
