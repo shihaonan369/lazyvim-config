@@ -685,9 +685,15 @@ local function spawn(cmd_list, env)
 end
 
 -- CLAUDE_CODE_NO_FLICKER=1 让 claude 以 fullscreen TUI（alternate screen）渲染；
--- 仅作用于本系统 spawn 的进程，不影响终端里直接跑的 claude
+-- 仅作用于本系统 spawn 的进程，不影响终端里直接跑的 claude。
+-- native 态再注入 diff 快照目录（ADR 0007 层 2：agent-diff-hook.sh 落回合
+-- 基线；plugin 态不注入——diff 由插件 OpenDiff 承担，避免双系统并作）
 local function claude_spawn_env(env)
-  return vim.tbl_extend("force", env or {}, { CLAUDE_CODE_NO_FLICKER = "1" })
+  env = vim.tbl_extend("force", env or {}, { CLAUDE_CODE_NO_FLICKER = "1" })
+  if vim.g.claude_backend ~= "plugin" then
+    env.AGENT_DIFF_DIR = vim.fn.stdpath("run") .. "/agent-diff"
+  end
+  return env
 end
 
 -- claude 专属启动参数注入：--settings 挂 agent 状态 hooks

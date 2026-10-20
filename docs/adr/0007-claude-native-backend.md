@@ -29,8 +29,16 @@ session 池/pane/领地/tab 视口/树/状态管线/名字续流/skill/回归门
 - **上下文投递走 PTY 注入，不走协议桥**：`<leader>as` 构造 `@path` 草稿注入
   TUI 输入框不提交（复用就绪队列/括号粘贴），`<leader>aM` 走 `M.command`
   （rename 同款 Ctrl-U + 文字 + 延时 CR 序列的通用化）。
-- **inline diff 走 hooks 快照 + 状态邮箱**（后续层落地）：PreToolUse 快照、
-  PostToolUse 推既有邮箱、nvim 侧开 diff；accept=删快照、deny=快照写回。
+- **inline diff 走 PostToolUse 快照**（层 2 已落地，2026-10-20 原型修订）：
+  单钩 `scripts/agent-diff-hook.sh`（matcher `Edit|Write|MultiEdit|NotebookEdit`）
+  落 `tool_response.originalFile`（本回合该文件首次编辑前的完整原文，hook
+  JSON 实证携带）为回合基线，路径 = `$AGENT_DIFF_DIR/$AGENT_SESSION_TAG
+  <绝对路径镜像>`。nvim 侧 `lua/agent_diff.lua` 只在按键时扫描（零轮询），
+  `<leader>ad` 审查视图开**专属 tab**（建于末尾，equalalways 只在 tabpage 内
+  重排——主区开窗会把 pane 一并重排，违反 ADR 0002「几何只属于用户」）；
+  accept=删快照（改动留盘），deny=基线字节级写回（fs_copyfile）+checktime；
+  ExitPre 清本实例 tag 目录。邮箱事件取消：originalFile 使 PreToolUse 与
+  推送事件都成冗余。
 - **收官摘除（0b）推迟到磨合期后用户拍板**：删 claudecode.lua、provider 桥
   （`M.claude_toggle`/`M.show_only`/`S.intent`/`S.claude_cache`）、宽度守卫，
   ADR 0001/0005 的插件引用历史化。
@@ -62,5 +70,12 @@ session 池/pane/领地/tab 视口/树/状态管线/名字续流/skill/回归门
   二进制），env 不沿用（那是插件 IDE 三件套）。
 - `AGENT_CLAUDE_BIN` 在模块加载时求值——headless 门须先设 env 再
   require（test-agent-named 判据 0）。
+- `--bare` 会跳过全部 hooks（CLI help 明示）——native 态的 spawn 链路禁用
+  `--bare`（当前不经此旗标）。
+- buffer 名经 `:edit` 的符号链接解析（macOS `/var`→`/private/var`），与
+  hook 上报路径（claude 侧已解析）比较时须 `resolve()` 对齐（deny 的
+  checktime 匹配、回归门判据同）。
+- 快照 `readfile/writefile` 为文本语义（deny 走 `fs_copyfile` 字节级写回，
+  审查窗的 scratch 显示不保二进制保真）。
 - 插件路径的宽度守卫（`nvim_win_set_width` 包装、`guard_display_width`）在
   并存期保留（plugin 态仍需），0b 一并摘除。

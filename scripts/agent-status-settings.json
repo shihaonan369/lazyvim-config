@@ -5,7 +5,8 @@
       { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh working" } ] }
     ],
     "PostToolUse": [
-      { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh working" } ] }
+      { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh working" } ] },
+      { "matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-diff-hook.sh" } ] }
     ],
     "Stop": [
       { "hooks": [ { "type": "command", "command": "$HOME/.config/nvim/scripts/agent-status-hook.sh idle" } ] }

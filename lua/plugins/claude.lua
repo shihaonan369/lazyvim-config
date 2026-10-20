@@ -79,5 +79,12 @@ return {
       if path == "" then return end
       agent.draft("@" .. path .. " ")
     end, { desc = "Smart Add" })
+    -- inline diff 审阅（ADR 0007 层 2，先落后审）：ad=待审清单（存活 session
+    -- 的回合基线快照），ada=接受（留盘），add=回滚到回合基线
+    local diff = require("agent_diff")
+    diff.setup()
+    vim.keymap.set("n", "<leader>ad", function() diff.review_picker() end, { desc = "Review agent diffs" })
+    vim.keymap.set("n", "<leader>ada", function() diff.accept() end, { desc = "Accept diff" })
+    vim.keymap.set("n", "<leader>add", function() diff.deny() end, { desc = "Deny (rollback) diff" })
   end,
 }
