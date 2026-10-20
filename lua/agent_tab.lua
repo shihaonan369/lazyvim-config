@@ -10,6 +10,7 @@ local M = {}
 
 local TREE_WIDTH = 40
 local WELCOME_NAME = "agent-tab://welcome"
+local FROZEN_GAP = 3 -- 底缘空隙判病阈值：免疫 chrome 记账误差与 1-2 行手滑微调
 
 local set_up = false
 local last_tab = nil -- TabLeave 时记录，进入 agent tab 时作为 return_tab
@@ -124,6 +125,44 @@ local function close_tree(tab)
     return
   end
   pcall(vim.api.nvim_win_close, win, false)
+end
+
+-- 视口恒满屏（2026-10-20 案）：合法布局下 tabpage 窗口必须铺满屏幕，底缘
+-- 空隙即 frame 预算冻结的病征——该 tab 的布局预算被钉死（真凶无目击：隐藏
+-- tab 强写/重缩放四组对照实验均免疫，属 nvim 内部状态损坏），:resize/&lines
+-- 抖动/重入/wincmd =/换挂 UI 全部无效，实测唯一解是重建壳。用户主动缩窗
+-- 留大片空隙同样进门即愈：agent tab 只有树+显示窗，缩高无受益者，满屏是
+-- decree（同"树恒在左、宽度稳定 40"一族）
+local function layout_frozen(tab)
+  local bottom = 0
+  for _, w in ipairs(vim.api.nvim_tabpage_list_wins(tab)) do
+    local info = vim.fn.getwininfo(w)[1]
+    if info and info.winrow + info.height > bottom then
+      bottom = info.winrow + info.height
+    end
+  end
+  return vim.o.lines - bottom >= FROZEN_GAP
+end
+
+-- 冻结自愈：摘牌→关壳→toggle 重建。终端 buffer 随窗隐藏不卸载、job 不死
+-- （ADR 0005 生命周期解耦），重建落末尾与首开同位（g1-g9 零扰动）。只剩
+-- 本 tab 时无处重建（tabclose 即退出 nvim），跳过——彼时也没有"再进来"的
+-- 自愈入口。return_tab 接力：origin（发起视角）优先，让位身份不因换壳丢失
+local function heal_frozen(tab)
+  if #vim.api.nvim_list_tabpages() < 2 then return end
+  local origin = vim.api.nvim_get_current_tabpage()
+  local ret = vim.t[tab].return_tab
+  vim.t[tab].agent_tab = nil
+  vim.cmd("tabclose " .. vim.api.nvim_tabpage_get_number(tab))
+  M.toggle()
+  local fresh = M.tab()
+  if fresh then
+    if vim.api.nvim_tabpage_is_valid(origin) and origin ~= fresh then
+      vim.t[fresh].return_tab = origin
+    elseif ret then
+      vim.t[fresh].return_tab = ret
+    end
+  end
 end
 
 -- 显示窗应持有的 buffer：session buf，无 current 落空态占位
@@ -304,6 +343,10 @@ function M.toggle()
   local tab = M.tab()
   if tab then
     if vim.api.nvim_get_current_tabpage() == tab then return end -- 已在其中：no-op
+    if layout_frozen(tab) then
+      heal_frozen(tab) -- 进门即愈：重建并落座新 tab（2026-10-20 案）
+      return
+    end
     vim.t[tab].return_tab = vim.api.nvim_get_current_tabpage() -- 记录来路（域守卫挪 buffer 用）
     vim.api.nvim_set_current_tabpage(tab)
     ensure_tree(tab) -- 切入时树若被手动关过则重开（设计共识）
@@ -379,6 +422,10 @@ function M.setup()
         local tab = vim.api.nvim_get_current_tabpage()
         if last_tab and last_tab ~= tab then vim.t[tab].return_tab = last_tab end
         vim.schedule(function()
+          if layout_frozen(tab) then
+            heal_frozen(tab) -- 重入即愈：schedule 内安全关/建 tab（2026-10-20 案）
+            return
+          end
           ensure_tree(tab)
           -- 离场补齐：manager.refresh 只刷新当前 tab 的树状态，人在主 tab
           -- pane 上 </> 切换时 agent tab 的树只被记 dirty，回来此刻对齐

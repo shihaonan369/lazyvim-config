@@ -93,3 +93,21 @@ sweep 清退成 blank），blank 落进树窗又触发域守卫，无限乒乓�
 "列宽−树 40"的涌现值，任何 Lua 侧直写一律吞掉（用户手动 resize 走 Ex
 命令不经此表，不受影响，宽度稳定法不破）。主 pane 的 30% 恢复是插件
 自家设计且与 pane 几何一致，不拦。回归：test-agent-tab.lua 判据 1e。
+
+## 修订（2026-10-20）：视口恒满屏自愈（frame 预算冻结案）
+
+容器实机 agent tab 视窗全缩成 6 行、下方 40+ 行空白；同刻主 tab h=50 正常。
+定性：该 tab 的 frame 预算被钉死在 ~7 行——布局引擎按冻结预算等比缩放
+（&lines 52→53 窗口 6→7），`:resize`/`nvim_win_set_height`/`&lines` 抖动/
+tab 重入/`wincmd =`/新挂 UI 全部无效，孤窗独占也只有 6 行。真凶无目击：
+隐藏 tab 强写、非当前 tab 改 lines、winfixheight、隐藏 tab win_call resize
+（终端 buffer + winfixwidth）四组 headless 对照实验均免疫，属 nvim 内部
+状态损坏。唯一有效解：结构性重建壳（摘牌→tabclose→toggle 重建），终端
+buffer 随窗隐藏不卸载、job 不死——生命周期解耦设计的事实验证。
+决定：满屏成为 decree（同"树恒在左、宽度稳定 40"一族）——底缘空隙 ≥3 行
+（阈值免疫 chrome 记账与 1-2 行手滑）即病，`<leader>at` 进门与 TabEnter
+重入两个入口自愈重建。副作用（用户知情）：主动把显示窗缩矮留大片空隙
+同样进门即愈——agent tab 内缩高无受益者。只剩本 tab 时跳过（tabclose 即
+退出，且无再进来入口）。return_tab 接力，让位身份不因换壳丢失。
+回归：test-agent-tab.lua 判据 7（真冻结无法 headless 复现，以 resize 缩窗
+造同款不满屏态固化用户契约；健康态重入不重建防误伤）。

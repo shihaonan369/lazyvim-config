@@ -222,4 +222,48 @@ check("force 收尾清零", vim.wait(2000, function()
   return A.count() == 0
 end))
 
+-- 判据 7（2026-10-20 案）：视口恒满屏自愈——底缘空隙是 frame 预算冻结的病征。
+-- 真凶无法 headless 复现（nvim 内部状态损坏，隐藏 tab 强写/重缩放等四组对照
+-- 实验均免疫），以 resize 缩窗造同款不满屏态，固化用户契约：重入/<leader>at
+-- 即重建、tab 换新、session 零损；健康态重入不重建（防误伤）
+A.claude_open("/bin/sleep 602", {}, false)
+quiesce()
+local sid7 = A.current_id()
+local function bottom_gap()
+  local t = T.tab()
+  local b = 0
+  for _, w in ipairs(vim.api.nvim_tabpage_list_wins(t)) do
+    local i = vim.fn.getwininfo(w)[1]
+    if i.winrow + i.height > b then b = i.winrow + i.height end
+  end
+  return vim.o.lines - b
+end
+local tab_before = T.tab()
+vim.cmd("tabnext 1")
+quiesce()
+vim.api.nvim_set_current_tabpage(tab_before)
+quiesce()
+check("健康态重入不重建", T.tab() == tab_before and bottom_gap() < 3)
+vim.api.nvim_win_call(dw(), function() vim.cmd("resize 6") end)
+quiesce()
+check("病征已造出（底缘空隙≥3）", bottom_gap() >= 3)
+vim.cmd("tabnext 1")
+quiesce()
+vim.api.nvim_set_current_tabpage(T.tab()) -- 重入冻结 tab
+quiesce()
+local tab_healed = T.tab()
+check("重入即重建（tab 换新且满屏）", tab_healed ~= nil and tab_healed ~= tab_before
+  and bottom_gap() < 3)
+check("重建后 session 零损且右窗持有", A.count() == 1
+  and dw() ~= nil and vim.api.nvim_win_get_buf(dw()) == A.buf_of(sid7))
+vim.api.nvim_win_call(dw(), function() vim.cmd("resize 6") end)
+quiesce()
+vim.cmd("tabnext 1")
+quiesce()
+press("<leader>at")
+quiesce()
+check("<leader>at 自愈重建并落座", T.tab() ~= tab_healed
+  and vim.api.nvim_get_current_tabpage() == T.tab() and bottom_gap() < 3)
+check("自愈后 session 仍在右窗", vim.api.nvim_win_get_buf(dw()) == A.buf_of(sid7))
+
 lib.finish()
