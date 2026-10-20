@@ -36,7 +36,9 @@ end
 return {
   "coder/claudecode.nvim",
   enabled = function()
-    return vim.g.ai_assistant == "claude"
+    -- 磨合期回退后端（ADR 0007）：默认 native（plugins/claude.lua 自研适配器），
+    -- CLAUDE_BACKEND=plugin（或 options.lua 改 claude_backend 默认）才启用本插件
+    return vim.g.ai_assistant == "claude" and vim.g.claude_backend == "plugin"
   end,
   -- 命令注册在 lua/ 而非 plugin/ 目录，lazy 的 shim 自动探测扫不到；
   -- 不声明则插件未加载时 :ClaudeCode 是 E492——agent_sessions 的冷启动

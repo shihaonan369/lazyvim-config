@@ -6,11 +6,28 @@
 -- 1b) 文字与 CR 分包：rename 文字之后是独立的 "\13"，不是同包 "\r"
 -- 2) when_ready 就绪态同步执行
 -- 3) 真实 asend.lua 的 aprompt_file → 就绪后括号粘贴投喂（多行安全）
--- 4) M.new(name) 暖路径带名（<leader>aN 同源；冷启动链属插件域不测）
+-- 0) native 冷启动：无 claude_cache 自构 {AGENT_CLAUDE_BIN} 直建（ADR 0007；
+--    <leader>an / agent tab 首开 / 树内 a 的首次新建同路。plugin 态冷启动
+--    （:ClaudeCode）属 claudecode 插件域，仍不在此测）
+-- 4) M.new(name) 暖路径带名（<leader>aN 同源）
 -- 5) 队列串行：rename 的 CR 落地（占用 450ms）之后，投喂的括号粘贴才进场
 --    ——否则投喂的 Ctrl-U 会清掉 rename 未提交的文字
 package.path = REPO .. "/lua/?.lua;" .. package.path
 vim.g.ai_assistant = "claude" -- 对齐真实配置默认（options.lua）
+vim.g.claude_backend = "native" -- 同上（ADR 0007；plugin 态冷启动属插件域不测）
+
+-- 假 TUI：sleep 模拟 3-10s 启动的微缩版；❯ 渲染即就绪判据命中。
+-- 须先落盘、先设 AGENT_CLAUDE_BIN 再 require——CLAUDE_BIN 在模块加载时求值
+local fake = "/tmp/fake-claude-" .. vim.fn.getpid()
+vim.fn.writefile({
+  "#!/bin/sh",
+  "sleep 0.4",
+  "printf 'Claude Code (fake) v1\\n\\n❯ \\n'",
+  "exec cat",
+}, fake)
+vim.fn.setfperm(fake, "rwxr-xr-x")
+vim.env.AGENT_CLAUDE_BIN = fake
+
 local A = require("agent_sessions")
 A.setup()
 
@@ -32,18 +49,18 @@ local function idx_exact(txt, from)
   end
 end
 
--- 假 TUI：sleep 模拟 3-10s 启动的微缩版；❯ 渲染即就绪判据命中
-local fake = "/tmp/fake-claude-" .. vim.fn.getpid()
-vim.fn.writefile({
-  "#!/bin/sh",
-  "sleep 0.4",
-  "printf 'Claude Code (fake) v1\\n\\n❯ \\n'",
-  "exec cat",
-}, fake)
-vim.fn.setfperm(fake, "rwxr-xr-x")
-
 local lib = dofile(REPO .. "/scripts/testlib.lua") -- 共享脚手架：check/finish
 local check = lib.check
+
+-- 判据 0：native 冷启动——无 claude_cache，adapters.claude.new 自构
+-- {AGENT_CLAUDE_BIN} 直建（ADR 0007；测后退场，不占后续判据的编号位）
+A.new("COLD-0")
+check("0 冷启动直建", A.count() == 1)
+check("0 冷启动带名入队", vim.wait(5000, function()
+  return idx_of("/rename COLD-0") ~= nil
+end))
+A.delete(A.current_id(), true)
+check("0 冷启动样本退场", vim.wait(3000, function() return A.count() == 0 end))
 
 -- 判据 1/1b：claude_open 第 4 参带名（skill 的 aspawn 同路）
 A.claude_open(fake .. " --fresh", {}, false, "IKMGVU-7")

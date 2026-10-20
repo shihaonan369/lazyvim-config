@@ -37,3 +37,9 @@ end
 -- AI 助手选择: "opencode", "claude", "codex"
 -- 修改这个值来切换 AI 助手，然后重启 Neovim
 vim.g.ai_assistant = vim.env.AI_ASSISTANT or "claude"
+
+-- claude 后端选择: "native"（本仓自研适配器）| "plugin"（claudecode.nvim）
+-- native 磨合期的应急回退：CLAUDE_BACKEND=plugin nvim 单次启动切回插件，
+-- 或改此默认整体切回（两 spec 互斥 enabled，见 plugins/claude.lua）。
+-- docs/adr/0007
+vim.g.claude_backend = vim.env.CLAUDE_BACKEND or "native"

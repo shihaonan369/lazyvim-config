@@ -696,6 +696,10 @@ end
 -- bypassPermissions（新版写法，替代 --dangerously-skip-permissions）
 local CLAUDE_STATUS_SETTINGS = vim.fn.stdpath("config") .. "/scripts/agent-status-settings.json"
 
+-- native 后端自构命令用的 claude 可执行文件（ADR 0007）；headless 门可设
+-- AGENT_CLAUDE_BIN 冒充（模块加载时求值，与 /bin/sleep 冒充 codex 同理）
+local CLAUDE_BIN = vim.env.AGENT_CLAUDE_BIN or "claude"
+
 local function claude_spawn_cmd(cmd_list)
   if not vim.fn.fnamemodify(cmd_list[1], ":t"):find("claude", 1, true) then
     return cmd_list -- 非 claude 命令（如测试用 /bin/sleep 冒充）不注入
@@ -803,17 +807,28 @@ adapters.opencode = {
 
 adapters.claude = {
   new = function(name)
-    if S.claude_cache then
-      local base = { S.claude_cache.cmd_list[1] }
-      local sess = spawn(claude_spawn_cmd(base), S.claude_cache.env)
-      display(sess.id, true)
-      name_named(sess, name)
-    else
-      -- provider 从未被调过，让插件自己构造 cmd/env 走一次 provider.open
-      S.intent = "new"
-      S.pending_name = name
-      vim.cmd("ClaudeCode")
+    -- plugin 态（磨合期回退开关，ADR 0007）：provider 桥链路原样保留
+    if vim.g.claude_backend == "plugin" then
+      if S.claude_cache then
+        local base = { S.claude_cache.cmd_list[1] }
+        local sess = spawn(claude_spawn_cmd(base), S.claude_cache.env)
+        display(sess.id, true)
+        name_named(sess, name)
+      else
+        -- provider 从未被调过，让插件自己构造 cmd/env 走一次 provider.open
+        S.intent = "new"
+        S.pending_name = name
+        vim.cmd("ClaudeCode")
+      end
+      return
     end
+    -- native 态：自构命令直 spawn（与 codex 同构，ADR 0007）。cache 只作
+    -- 「上次可执行」记忆沿用（skill aspawn 后同二进制），env 不沿用——
+    -- 那是插件的 IDE 三件套（SSE 端口等），native 态没有服务端可反连
+    local bin = (S.claude_cache and S.claude_cache.cmd_list[1]) or CLAUDE_BIN
+    local sess = spawn(claude_spawn_cmd({ bin }), claude_spawn_env(nil))
+    display(sess.id, true)
+    name_named(sess, name)
   end,
 }
 
@@ -1077,6 +1092,32 @@ function M.list()
   return out
 end
 
+-- 斜杠命令注入（/rename、/model、<leader>aM 同族，ADR 0007）：\21(Ctrl-U)
+-- 先清 input 草稿 → 命令文字 → 300ms 延时独立 CR。文字与 CR 分包：就绪初期
+-- 同包紧跟的 CR 会被 TUI 吞掉、命令躺输入框不提交（2026-10-17 实证）；
+-- settled 后同包虽可用，分包是两种时机的交集安全区，注入形态保持单一
+-- （与 skill 的 arename 同款）。Ctrl-U 的取舍：盲通道下无法感知/保存用户
+-- 未提交文字，不清则命令与草稿拼接两头不一致——罕见窗口的草稿被牺牲，
+-- 换取命令恒定干净执行。
+function M.command(id, line)
+  local _, s = by_id(id)
+  if not s or not line or line == "" then return end
+  line = line:gsub("%c", "") -- 控制字符清掉（claude 侧也会净化，双保险）
+  local chan = vim.b[s.bufnr].terminal_job_id
+  rt_log(string.format("command id=%s line=%s chan=%s", s.id, line, tostring(chan)))
+  if chan then
+    vim.api.nvim_chan_send(chan, "\21" .. line)
+    vim.defer_fn(function()
+      if vim.api.nvim_buf_is_valid(s.bufnr) then
+        pcall(vim.api.nvim_chan_send, chan, "\13")
+        rt_log("cr sent id=" .. s.id)
+      else
+        rt_log("cr dropped(buf dead) id=" .. s.id)
+      end
+    end, 300)
+  end
+end
+
 -- 重命名 session（树内 r）。claude：**只发命令不落名**——名字唯一落点在
 -- custom-title 回流（claude 是权威），命令没被执行则树保持旧名，不假成功
 -- （用户裁决：显示的统一性要单点）。Enter 用 \r 不用 \n（\n 是 M.send 的
@@ -1086,27 +1127,8 @@ end
 function M.rename(id, name)
   local _, s = by_id(id)
   if not s or not name or name == "" then return end
-  name = name:gsub("%c", "") -- 控制字符清掉（claude 侧也会净化，双保险）
   if S.ptype == "claude" then
-    -- \21(Ctrl-U)先清 input 草稿：盲通道下无法感知/保存用户未提交文字，
-    -- 不清则命令与草稿拼接——改名失败且草稿被毁，两头不一致。取舍：罕见
-    -- 窗口（草稿未提交时来树里按 r）的草稿被牺牲，换取 rename 恒定干净执行。
-    -- 文字与 CR 分包（CR 延时 300ms）：就绪初期同包紧跟的 CR 会被 TUI 吞掉、
-    -- 命令躺输入框不提交（2026-10-17 实证）；settled 后同包虽可用，分包是
-    -- 两种时机的交集安全区，注入形态保持单一（与 skill 的 arename 同款）
-    local chan = vim.b[s.bufnr].terminal_job_id
-    rt_log(string.format("rename id=%s name=%s chan=%s", s.id, name, tostring(chan)))
-    if chan then
-      vim.api.nvim_chan_send(chan, "\21/rename " .. name)
-      vim.defer_fn(function()
-        if vim.api.nvim_buf_is_valid(s.bufnr) then
-          pcall(vim.api.nvim_chan_send, chan, "\13")
-          rt_log("cr sent id=" .. s.id)
-        else
-          rt_log("cr dropped(buf dead) id=" .. s.id)
-        end
-      end, 300)
-    end
+    M.command(id, "/rename " .. name)
   else
     s.name = name
     emit()
