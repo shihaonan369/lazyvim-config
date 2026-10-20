@@ -7,20 +7,11 @@ local A = dofile(REPO .. "/lua/agent_sessions.lua")
 vim.g.ai_assistant = "claude" -- 对齐真实配置默认（options.lua）；rename 分派依赖 ptype
 A.setup()
 
-local fails = {}
-local function check(name, cond)
-  if cond then
-    print("ok   " .. name)
-  else
-    print("FAIL " .. name)
-    fails[#fails + 1] = name
-  end
-end
+local lib = dofile(REPO .. "/scripts/testlib.lua") -- 共享脚手架：check/quiesce/finish
+lib.quiesce_ms = 200 -- 静置谓词恒假，用于断言"无变化"；节奏比别的门快
+local check, quiesce = lib.check, lib.quiesce
 local function settle(pat) -- 等状态收敛到含 pat（plain find）
   return vim.wait(2000, function() return A.status():find(pat, 1, true) ~= nil end)
-end
-local function quiesce(ms) -- 静置等待：谓词恒假，用于断言"无变化"
-  vim.wait(ms or 200, function() return false end)
 end
 
 local icon = vim.fn.nr2char(0xF06A9) -- robot 实心（无事件/当前），同模块定义
@@ -167,5 +158,4 @@ check("出生后文件级 fsevent 续流", vim.wait(2000, function()
   return A.list()[1] and A.list()[1].name == "晚生追加"
 end))
 
-print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
-vim.cmd(#fails == 0 and "qa!" or "cq")
+lib.finish()

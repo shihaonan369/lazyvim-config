@@ -5,5 +5,5 @@
 # （current 标记、光标跟随、跨 tab 补刷）。见 scripts/test-agent-tree.lua。
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-exec nvim --headless --clean -u NONE \
+exec nvim --headless --clean \
   "+lua REPO=[[$ROOT]] dofile([[$ROOT/scripts/test-agent-tree.lua]])"

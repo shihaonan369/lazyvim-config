@@ -4,5 +4,5 @@
 # 判据见 scripts/test-agent-goto.lua（切换不夺焦、右窗路由、越界反馈）。
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-exec nvim --headless --clean -u NONE \
+exec nvim --headless --clean \
   "+lua REPO=[[$ROOT]] dofile([[$ROOT/scripts/test-agent-goto.lua]])"

@@ -5,5 +5,5 @@
 # 见 scripts/test-agent-pane-layout.lua、docs/adr/0002（修订）、0004。
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-exec nvim --headless --clean -i NONE \
+exec nvim --headless --clean \
   "+lua REPO=[[$ROOT]] dofile([[$ROOT/scripts/test-agent-pane-layout.lua]])"

@@ -15,7 +15,7 @@ echo x > "$T/xdg/nvim/skills/agent-sessions/SKILL.md"
 run_case() { # $1=CASE $2=XDG_CONFIG_HOME $3=HOME
   env -i PATH="$PATH" TERM=dumb HOME="$3" XDG_CONFIG_HOME="$2" \
     XDG_DATA_HOME="$T/data" XDG_STATE_HOME="$T/state" XDG_CACHE_HOME="$T/cache" \
-    nvim --headless --clean -i NONE \
+    nvim --headless --clean \
     "+lua REPO=[[$ROOT]] HOME_T=[[$3]] CASE=[[$1]] dofile([[$ROOT/scripts/test-skill-mount.lua]])"
 }
 

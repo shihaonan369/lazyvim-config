@@ -5,5 +5,5 @@
 # docs/adr/0005。
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-exec nvim --headless --clean -i NONE \
+exec nvim --headless --clean \
   "+lua REPO=[[$ROOT]] dofile([[$ROOT/scripts/test-agent-tab.lua]])"

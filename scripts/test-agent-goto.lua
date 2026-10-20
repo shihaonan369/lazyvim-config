@@ -17,27 +17,9 @@ local A = require("agent_sessions")
 local T = require("agent_tab")
 A.setup()
 
-local fails = {}
-local function check(name, cond)
-  print((cond and "ok   " or "FAIL ") .. name)
-  if not cond then fails[#fails + 1] = name end
-end
-local function quiesce(ms)
-  vim.wait(ms or 500, function() return false end)
-end
-
--- 直调全局 n 模式键位回调（headless 惯例；<leader>a* 是全局映射，任意正常
--- buffer 语境取 maparg 均可）。映射缺失记 FAIL 返回 false——红相也走 qa!
--- 干净退出，assert 抛错会让 headless nvim 挂住不退
-local function press(lhs)
-  local m = vim.fn.maparg(lhs, "n", false, true)
-  if not (type(m) == "table" and m.callback) then
-    check(lhs .. " 映射在位", false)
-    return false
-  end
-  m.callback()
-  return true
-end
+local lib = dofile(REPO .. "/scripts/testlib.lua") -- 共享脚手架：check/quiesce/press/finish
+lib.quiesce_ms = 500
+local check, quiesce, press = lib.check, lib.quiesce, lib.press
 
 local function win_with(mark, tab)
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(tab or vim.api.nvim_get_current_tabpage())) do
@@ -111,5 +93,4 @@ check("弹出后焦点回原窗", p5 and vim.api.nvim_get_current_win() == main_
 A.delete(id1, true)
 A.delete(id2, true)
 vim.wait(2000, function() return A.count() == 0 end)
-print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
-vim.cmd(#fails == 0 and "qa!" or "cq")
+lib.finish()

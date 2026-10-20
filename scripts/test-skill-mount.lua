@@ -19,11 +19,8 @@ local dst = HOME_T .. "/.claude/skills"
 local cfg = vim.fn.stdpath("config")
 local function rl(p) return vim.uv.fs_readlink(p) end
 local function has(p) return vim.uv.fs_stat(p) ~= nil end
-local fails = {}
-local function check(name, cond)
-  if cond then print("ok   " .. name) else print("FAIL " .. name) end
-  if not cond then fails[#fails + 1] = name end
-end
+local lib = dofile(REPO .. "/scripts/testlib.lua") -- 共享脚手架：check/finish
+local check = lib.check
 
 if CASE == "A" then
   -- A4/A5 先行：两类他人实体占名 → 不碰
@@ -56,5 +53,4 @@ else -- CASE B：源 skills/ 不存在
   check("B1 无源整段不动作", vim.uv.fs_stat(HOME_T .. "/.claude") == nil)
 end
 
-print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
-vim.cmd(#fails == 0 and "qa!" or "cq")
+lib.finish()

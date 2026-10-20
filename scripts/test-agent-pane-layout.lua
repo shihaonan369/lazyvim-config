@@ -12,20 +12,8 @@ local A = require("agent_sessions") -- require 而非 dofile：keymaps 顶层会
 dofile(REPO .. "/lua/config/keymaps.lua") -- 真键位路径：toggle_max_width 让回逻辑
 A.setup()
 
-local fails = {}
-local function check(name, cond)
-  if cond then
-    print("ok   " .. name)
-  else
-    print("FAIL " .. name)
-    fails[#fails + 1] = name
-  end
-end
-local function quiesce(ms) -- 静置：谓词恒假，等 schedule 链走完
-  vim.wait(ms or 400, function()
-    return false
-  end)
-end
+local lib = dofile(REPO .. "/scripts/testlib.lua") -- 共享脚手架：check/quiesce/press/finish
+local check, quiesce, press = lib.check, lib.quiesce, lib.press
 local function pane_win()
   local buf = A.current_buf()
   if not buf then
@@ -39,13 +27,6 @@ local function pane_win()
 end
 local function wins()
   return vim.api.nvim_tabpage_list_wins(vim.api.nvim_get_current_tabpage())
-end
--- 直接调真键位的回调：nvim_input 注入的 <C-S-Right> 修饰键编码在 headless
--- 下不落到该映射上（迟到执行反而污染后续断言），回调等价且确定
-local function press_max_width()
-  local m = vim.fn.maparg("<C-S-Right>", "n", false, true) -- dict=true 才带 callback
-  assert(type(m.callback) == "function", "toggle_max_width 映射缺失")
-  m.callback()
 end
 
 vim.o.columns = 200
@@ -61,15 +42,15 @@ vim.cmd("stopinsert")
 
 -- 判据 5：真 <C-S-Right>——9999 原语义（兄弟压到 winminwidth）+ 最大化期间
 -- 重算底线对齐挤压底线（winwidth=winminwidth，重算无从抬宽偷宽，ADR 0004）
-press_max_width()
+press("<C-S-Right>")
 check("最大化已执行（winvar 落地）", vim.w[pw] and vim.w[pw].max_width ~= nil)
 check("最大化期间 winwidth 对齐 winminwidth", vim.o.winwidth == vim.o.winminwidth)
 local maxed = vim.api.nvim_win_get_width(pw)
 check("拉满保持 9999 语义（兄弟窗压到 winminwidth）", maxed == 200 - 1 - vim.o.winminwidth)
-press_max_width() -- 还原
+press("<C-S-Right>") -- 还原
 check("还原后宽度回原值", vim.api.nvim_win_get_width(pw) == 60)
 check("还原后 winwidth 恢复默认", vim.o.winwidth == 20)
-press_max_width() -- 为后续判据重新拉满
+press("<C-S-Right>") -- 为后续判据重新拉满
 maxed = vim.api.nvim_win_get_width(pw)
 quiesce()
 
@@ -139,7 +120,7 @@ for _, w in ipairs(wins()) do
 end
 vim.api.nvim_set_current_win(pb)
 vim.cmd("stopinsert")
-press_max_width()
+press("<C-S-Right>")
 check("场景 B 最大化已执行", vim.w[pb] and vim.w[pb].max_width ~= nil)
 quiesce()
 
@@ -192,5 +173,4 @@ vim.wait(2000, function()
   return A.count() == 0
 end)
 
-print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
-vim.cmd(#fails == 0 and "qa!" or "cq")
+lib.finish()

@@ -3,5 +3,5 @@
 # 判据全部基于模块状态与 status() 字符串，不依赖 UI redraw。见 docs/adr/0003。
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-exec nvim --headless --clean -i NONE \
+exec nvim --headless --clean \
   "+lua REPO=[[$ROOT]] dofile([[$ROOT/scripts/test-agent-status.lua]])"

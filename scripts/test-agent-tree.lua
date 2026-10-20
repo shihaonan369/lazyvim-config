@@ -25,14 +25,9 @@ local A = require("agent_sessions")
 local T = require("agent_tab")
 local manager = require("neo-tree.sources.manager")
 
-local fails = {}
-local function check(name, cond)
-  print((cond and "ok   " or "FAIL ") .. name)
-  if not cond then fails[#fails + 1] = name end
-end
-local function quiesce(ms)
-  vim.wait(ms or 500, function() return false end)
-end
+local lib = dofile(REPO .. "/scripts/testlib.lua") -- 共享脚手架：check/quiesce/press/finish
+lib.quiesce_ms = 500
+local check, quiesce = lib.check, lib.quiesce
 
 local function tree_state()
   local tab = T.tab()
@@ -54,14 +49,7 @@ local function current_node_line()
   return linenr, vim.api.nvim_win_get_cursor(tw)[1]
 end
 
--- 直接调 term buffer 上的 < / > 真键位回调（headless 惯例；maparg 必须在
--- term buffer 语境取——树 buffer 上这两个键是 "none"）
-local function press_cycle(buf, lhs)
-  local m
-  vim.api.nvim_buf_call(buf, function() m = vim.fn.maparg(lhs, "n", false, true) end)
-  assert(m and m.callback ~= nil, lhs .. " 映射缺失")
-  m.callback()
-end
+local press = lib.press -- buf 语境版：term buffer 上的 < / > 是 buffer 局部键
 
 vim.o.columns = 200
 vim.o.lines = 50
@@ -79,7 +67,7 @@ local dwin = vim.t[T.tab()].agent_display
 local tbuf = vim.api.nvim_win_get_buf(dwin)
 vim.api.nvim_set_current_win(dwin) -- 真实姿势：焦点在显示窗按 < / >
 
-press_cycle(tbuf, "<")
+press("<", tbuf) -- maparg 必须在 term buffer 语境取——树 buffer 上是 "none"
 quiesce()
 local id1 = A.list()[1].id
 check("显示窗 < 切到 #1", A.current_id() == id1)
@@ -111,5 +99,4 @@ check("回 agent tab 后光标行对齐 #2", cursor2 == node2)
 A.delete(id1, true)
 A.delete(id2, true)
 vim.wait(2000, function() return A.count() == 0 end)
-print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
-vim.cmd(#fails == 0 and "qa!" or "cq")
+lib.finish()

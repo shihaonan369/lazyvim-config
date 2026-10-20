@@ -42,11 +42,8 @@ vim.fn.writefile({
 }, fake)
 vim.fn.setfperm(fake, "rwxr-xr-x")
 
-local fails = {}
-local function check(name, cond)
-  if cond then print("ok   " .. name) else print("FAIL " .. name) end
-  if not cond then fails[#fails + 1] = name end
-end
+local lib = dofile(REPO .. "/scripts/testlib.lua") -- 共享脚手架：check/finish
+local check = lib.check
 
 -- 判据 1/1b：claude_open 第 4 参带名（skill 的 aspawn 同路）
 A.claude_open(fake .. " --fresh", {}, false, "IKMGVU-7")
@@ -111,5 +108,4 @@ vim.api.nvim_chan_send = orig_send
 vim.fn.delete(fake)
 vim.fn.delete(pf)
 vim.fn.delete(pf2)
-print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
-vim.cmd(#fails == 0 and "qa!" or "cq")
+lib.finish()

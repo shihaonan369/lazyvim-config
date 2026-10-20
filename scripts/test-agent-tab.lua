@@ -18,25 +18,8 @@ local A = require("agent_sessions")
 local T = require("agent_tab")
 A.setup()
 
-local fails = {}
-local function check(name, cond)
-  if cond then
-    print("ok   " .. name)
-  else
-    print("FAIL " .. name)
-    fails[#fails + 1] = name
-  end
-end
-local function quiesce(ms)
-  vim.wait(ms or 400, function()
-    return false
-  end)
-end
-local function press_at() -- 直接调真键位回调（headless 修饰键编码不可靠，判据同 pane 测试惯例）
-  local m = vim.fn.maparg("<leader>at", "n", false, true)
-  assert(type(m.callback) == "function", "<leader>at 映射缺失")
-  m.callback()
-end
+local lib = dofile(REPO .. "/scripts/testlib.lua") -- 共享脚手架：check/quiesce/press/finish
+local check, quiesce, press = lib.check, lib.quiesce, lib.press
 local function tab_wins()
   return vim.api.nvim_tabpage_list_wins(vim.api.nvim_get_current_tabpage())
 end
@@ -73,7 +56,7 @@ local tabline_before = vim.o.showtabline
 
 -- 判据 1：末尾建 tab、首开自动新建、左树右显示窗 ------------------------
 check("<leader>at 已映射", type((vim.fn.maparg("<leader>at", "n", false, true)).callback) == "function")
-press_at()
+press("<leader>at")
 quiesce()
 local tab = T.tab()
 check("tab 已建于末尾", tab ~= nil and vim.api.nvim_get_current_tabpage() == tab
@@ -222,7 +205,7 @@ check("离开后 <leader>as 恢复且回调保真", (function()
   return fake_fired
 end)())
 check("离开后 showtabline 未被触碰", vim.o.showtabline == tabline_before)
-press_at() -- 幂等：存在即切（末尾那个）
+press("<leader>at") -- 幂等：存在即切（末尾那个）
 quiesce()
 check("再次 <leader>at 存在即切", vim.api.nvim_get_current_tabpage() == T.tab())
 
@@ -239,5 +222,4 @@ check("force 收尾清零", vim.wait(2000, function()
   return A.count() == 0
 end))
 
-print(#fails == 0 and "ALL PASS" or ("FAILED: " .. table.concat(fails, ", ")))
-vim.cmd(#fails == 0 and "qa!" or "cq")
+lib.finish()
