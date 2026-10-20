@@ -11,6 +11,30 @@ end
 map("n", "<leader>at", function() require("agent_tab").toggle() end, { desc = "Agent tab", silent = true })
 require("agent_tab").setup()
 
+-- <leader>a1..9：直达位置编号 #n（存活序，CONTEXT.md 词汇；树/statusline
+-- 图标串/picker 同序，切换不重排）。display 全语义不夺焦——pane 收着则弹出、
+-- 开着换 buffer、agent tab 内右窗换 buffer；「带视角过去」是 at/aa 的职责，
+-- 这里只切 current。10+ 走 aa picker / 树
+for n = 1, 9 do
+  map("n", "<leader>a" .. n, function()
+    local agent = require("agent_sessions")
+    local item = agent.list()[n]
+    if item then
+      -- pane 收着时 show_pane 的 botright vsplit 会把当前窗留给新 pane 窗：
+      -- 弹出不等于夺焦——a1..9 是状态切换键，切完人回原窗（agent tab 走
+      -- alt 视口不动焦点，此判据自然 no-op）
+      local win = vim.api.nvim_get_current_win()
+      agent.select(item.id, false)
+      if vim.api.nvim_win_is_valid(win) and vim.api.nvim_get_current_win() ~= win then
+        vim.api.nvim_set_current_win(win)
+      end
+    else
+      -- 不假成功：静默 no-op 分不清键没生效还是没这个 agent
+      vim.notify(("no agent #%d (%d live)"):format(n, agent.count()), vim.log.levels.WARN)
+    end
+  end, { desc = "Agent #" .. n, silent = true })
+end
+
 map({ "i", "v" }, "jk", "<esc>", { desc = "esc", silent = true })
 map({ "i", "v" }, "kj", "<esc>", { desc = "esc", silent = true })
 map({ "t" }, "jk", [[<C-\><C-n>]], { desc = "esc", silent = true })
