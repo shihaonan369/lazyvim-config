@@ -30,9 +30,11 @@ return {
       local id = agent.current_id()
       if id then agent.command(id, "/model") end
     end, { desc = "Model picker" })
-    -- Smart Add（层 1 前的桩形态，ADR 0007）：树感知 path 提取同 codex.lua，
-    -- 注入 @引用草稿进输入框、不提交（M.send submit=false），过目后自己 CR；
-    -- 选区富语义（行号范围/括号粘贴/超长落临时文件）由后续层补全
+    -- Smart Add（ADR 0007 层 1）：树节点/选区/整文件 → @引用草稿注入输入框，
+    -- 不提交（M.draft，过目后自己 CR）。@path 字面文本 claude 原生理解
+    -- （2026-10-20 -p 实证）。选区超 100 行落临时文件改 @tmp 引用，不向
+    -- 输入框灌几千行
+    local draft_seq = 0
     vim.keymap.set({ "n", "v" }, "<leader>as", function()
       local ft = vim.bo.filetype
       local tree_types = { NvimTree = true, ["neo-tree"] = true, oil = true, minifiles = true, netrw = true }
@@ -58,8 +60,24 @@ return {
           end
         end
       end
+      local mode = vim.fn.mode()
+      if path == nil and (mode == "v" or mode == "V" or mode == "\22") then
+        local l1, l2 = vim.fn.line("'<"), vim.fn.line("'>")
+        local lines = vim.fn.getline(l1, l2)
+        local fpath = vim.fn.expand("%:p")
+        if fpath ~= "" and #lines > 0 then
+          if #lines > 100 then
+            draft_seq = draft_seq + 1
+            local tmp = vim.fn.stdpath("run") .. "/agent-draft-" .. vim.fn.getpid() .. "-" .. draft_seq .. ".txt"
+            vim.fn.writefile(lines, tmp)
+            return agent.draft("@" .. tmp .. "（选区自 " .. fpath .. " L" .. l1 .. "-L" .. l2 .. "）\n")
+          end
+          return agent.draft("@" .. fpath .. " L" .. l1 .. "-L" .. l2 .. "：\n" .. table.concat(lines, "\n"))
+        end
+      end
       path = path or vim.fn.expand("%:p")
-      agent.send("@" .. path .. " ", false)
+      if path == "" then return end
+      agent.draft("@" .. path .. " ")
     end, { desc = "Smart Add" })
   end,
 }

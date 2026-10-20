@@ -1037,6 +1037,28 @@ function M.send(text, submit)
   vim.schedule(function() M.focus() end)
 end
 
+-- 草稿注入（<leader>as，ADR 0007 层 1）：@引用/选区文本进 TUI 输入框，
+-- **不提交**——过目/改写后自己 CR（审阅语义免费获得）。多行必须括号粘贴
+-- （裸 \n 会被 TUI 当 Enter 提前提交），序列 = skill 的 aprompt 去掉延时
+-- CR；Ctrl-U 清草稿的取舍同 M.command。走就绪队列：冷启动/启动中自动
+-- 排队（空池先 M.new），60s 超时作废。
+function M.draft(text)
+  if text == nil or text == "" then return end
+  if #S.sessions == 0 then
+    M.new()
+  end
+  local _, cur = by_id(S.current)
+  if not cur then return end
+  local bufnr = cur.bufnr
+  M.when_ready(cur.id, function()
+    local chan = vim.b[bufnr] and vim.b[bufnr].terminal_job_id
+    if not chan then return end
+    pcall(vim.api.nvim_chan_send, chan, "\21")
+    pcall(vim.api.nvim_chan_send, chan, "\27[200~" .. text .. "\27[201~")
+  end)
+  vim.schedule(function() M.focus() end)
+end
+
 -- 退出/删除 session。默认优雅退出（树内 d，用户裁决 2026-10-15）：向 pty
 -- 发退出命令（Ctrl-U 清草稿 → /exit → CR，同 rename 注入序列），agent 走
 -- 自己的收尾（存 transcript/状态），不强杀、不兜底——回合中命令排队、
