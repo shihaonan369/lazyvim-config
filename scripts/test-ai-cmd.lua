@@ -117,7 +117,9 @@ vim.wait(3000, function() return false end) -- 给足送达+执行窗口
 check("5 拒审不执行", vim.g.ai_refuse == 0)
 check("5 拒审无 WARN", #notes == 0)
 
--- 判据 6：setup 装配——:AI 命令注册 + 五变体缩写 + CR 截获 + 生灭 autocmd
+-- 判据 6：setup 装配——:AI 命令注册 + 五变体文本缩写 + 无 CR 劫持残留
+-- （图标内联行已弃：cmdline CR 原生提交不可拦截，expr/回调双实证 E492 案，
+-- 回归守卫防复辟）
 A.setup()
 check("6 :AI 命令已注册", vim.api.nvim_get_commands({})["AI"] ~= nil)
 -- maparg('c') 只查 cmdline 映射表不含缩写；:cabbrev 列表 + 每变体指纹
@@ -125,20 +127,11 @@ do
   local abbr = vim.fn.execute("cabbrev")
   local all = true
   for _, tok in ipairs({ "a", "A", "ai", "Ai", "aI" }) do
-    if not abbr:find("_abbrev('" .. tok .. "')", 1, true) then all = false end
+    if not abbr:find("==# '" .. tok .. "' ? 'AI'", 1, true) then all = false end
   end
-  check("6 五变体缩写已注册", all)
+  check("6 五变体缩写已注册（归一 :AI 文本）", all)
 end
-check("6 CR 截获已注册", vim.fn.maparg("<CR>", "c", false, true).rhs
-  and vim.fn.maparg("<CR>", "c", false, true).rhs:find("ai_cmd'._cr", 1, true) ~= nil)
-check("6 内联态生灭 autocmd 在位", #vim.api.nvim_get_autocmds({
-  event = { "CmdlineEnter", "CmdlineLeave" },
-}) >= 2)
-
--- 判据 6b：透传安全（headless 可测部分）——非 cmdline 语境 _abbrev 原样
--- 返回词形、_cr 原样返回 CR；变形/截获的活跃路径由 PTY 全链验证
-check("6b _abbrev 非 cmdline 透传", A._abbrev("a") == "a")
-check("6b _cr 非 AI 态透传", A._cr() == "\r")
+check("6 无 c-<CR> 劫持残留", vim.tbl_isempty(vim.fn.maparg("<CR>", "c", false, true)))
 
 -- 判据 7：fresh（:AI!）→ 不带 -r
 vim.g.ai_test_fresh = 0

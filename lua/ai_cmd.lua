@@ -53,29 +53,15 @@ function M.reset()
   chain_save(nil)
 end
 
--- 内联形态（用户裁决 2026-10-21 二次修正）：`:a<空格>` 起手变形——词形
--- 被图标替换，整行内联成 `: robot 纯查询`，CR 提交。行文同 `:!cmd`：'!'
--- 本来就是冒号后的内容首字符（提示符 ':' 不归内容管——setcmdprompt 在
--- 0.12.6 根本不存在，vimfn 只有只读 getcmdprompt；vim.fn 惰性代理让
--- type() 假报 function、调用才 E117，pcall 吞错即假装成功，勿再踩）。
--- 图标 = agent 本体脸（agent_sessions NEUTRAL_ICON 实心 0xF06A9）。
+-- 输入框形态（裸 :AI / :a<CR>）：agent 图标（agent_sessions NEUTRAL_ICON
+-- 实心 0xF06A9，树/statusline 同款）**替换**输入框自带前导 icon（snacks
+-- 默认 icon 渲染如 '>'，LazyVim 即 vim.ui.input 后端），不是追加在其后。
+-- 图标内联行已弃（用户裁决 2026-10-21）：cmdline 的 <CR> 原生提交不可
+-- 拦截——expr 映射与回调映射双实证拦不住（E492 案），图标行无法作为
+-- 命令提交；setcmdprompt 亦不存在（vimfn 只有只读 getcmdprompt，vim.fn
+-- 惰性代理假报存在性）。此路不通，保 :AI 文本命令
 local INLINE_ICON = vim.fn.nr2char(0xF06A9)
-local inline_active = false
 
--- 缩写命中（五大小写变体，空格/CR 触发都进）：守卫通过则换成图标+空格
--- （触发空格自然成为图标后的分隔）；已在 AI 态（查询恰为 "a"/"ai" 词）
--- 原样返回不重复变形。:a! 的 bang 走不进内联态（! 也触发缩写）——用 :AI!
-function M._abbrev(tok)
-  local line = vim.fn.getcmdline()
-  if inline_active or vim.fn.getcmdtype() ~= ":" or line ~= tok then return tok end
-  inline_active = true
-  return INLINE_ICON .. " "
-end
-
--- 输入框回落形态（裸 :AI / :a<CR> 空查询）：agent 图标**替换**输入框自带
--- 前导 icon（snacks 默认 icon 渲染如 '>'，LazyVim 即 vim.ui.input 后端），
--- 不是追加在它后面——robot 占 icon 位、prompt 置空；无 snacks 回落原生
--- prompt。须声明在 M._cr 之前（局部前向引用落 nil 全局）
 local function ask_box(fresh)
   local function cb(q)
     if q and q:find("%S") then M.run(vim.trim(q), { fresh = fresh }) end
@@ -90,24 +76,6 @@ local function ask_box(fresh)
     end
   end
   vim.ui.input({ prompt = INLINE_ICON .. " " }, cb)
-end
-
--- CR 截获：AI 态下整行即查询（吞掉提交——查询不进命令历史），空查询回落
--- 输入框；非 AI 态透传。返回 Esc 键序终结本次 cmdline
-function M._cr()
-  if not inline_active then return "\r" end
-  inline_active = false
-  local q = vim.fn.getcmdline()
-  if q:sub(1, #INLINE_ICON) == INLINE_ICON then q = q:sub(#INLINE_ICON + 1) end -- 图标是装饰，不进查询
-  q = vim.trim(q)
-  vim.schedule(function()
-    if q == "" then
-      ask_box(false)
-    else
-      M.run(q)
-    end
-  end)
-  return "\27"
 end
 
 local function build_prompt(query)
@@ -228,23 +196,15 @@ function M.setup()
     else
       M.run(args, { fresh = o.bang })
     end
-  end, { nargs = "*", bang = true, desc = "自然语言 → nvim 操作（:a<空格> 内联图标行，claude -p 续链，先审后执；! 重置链）" })
-  -- 入口五变体（用户裁决）：a/A/ai/Ai/aI 经缩写变形进 AI 态（:AI 本体
-  -- 无需缩写）。守卫在 _abbrev 内（cmdtype : 且整行恰为词形）；缩写在
-  -- 空格与裸 CR 下都展开（PTY 实测，headless feedkeys 假阴勿信）；
-  -- :args 等词内续打不触发（缩写只在非词字符跟上时炸），:append 让位
+  end, { nargs = "*", bang = true, desc = "自然语言 → nvim 操作（claude -p 续链，先审后执；! 重置链）" })
+  -- 入口五变体（用户裁决）：a/A/ai/Ai/aI 经带守卫缩写归一成 :AI 文本——
+  -- :a query / :a! 即 :AI query / :AI!（词内续打如 :args 不触发，缩写只在
+  -- 非词字符跟上时炸；裸 CR 也展开，PTY 实测，headless feedkeys 假阴勿信；
+  -- :append 让位）
   for _, tok in ipairs({ "a", "A", "ai", "Ai", "aI" }) do
-    vim.cmd(("cnoreabbrev <expr> %s v:lua.require'ai_cmd'._abbrev('%s')"):format(tok, tok))
+    vim.cmd(("cnoreabbrev <expr> %s getcmdtype() ==# ':' && getcmdline() ==# '%s' ? 'AI' : '%s'")
+      :format(tok, tok, tok))
   end
-  -- CR 截获：AI 态吞提交取整行为查询；非 AI 态原样透传（expr 结果不再
-  -- 被 remap，无递归）
-  vim.cmd([[cnoremap <expr> <CR> v:lua.require'ai_cmd'._cr()]])
-  -- AI 态随 cmdline 生灭：Esc 弃/异常退出不残留标志（残留会劫持下一次
-  -- 普通命令的 CR）
-  vim.api.nvim_create_autocmd({ "CmdlineEnter", "CmdlineLeave" }, {
-    callback = function() inline_active = false end,
-    desc = "ai_cmd 内联态随 cmdline 生灭",
-  })
 end
 
 return M
