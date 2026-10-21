@@ -117,20 +117,28 @@ vim.wait(3000, function() return false end) -- 给足送达+执行窗口
 check("5 拒审不执行", vim.g.ai_refuse == 0)
 check("5 拒审无 WARN", #notes == 0)
 
--- 判据 6：setup 装配——:AI 命令注册 + :ai 带守卫缩写在位
+-- 判据 6：setup 装配——:AI 命令注册 + 五变体缩写 + CR 截获 + 生灭 autocmd
 A.setup()
 check("6 :AI 命令已注册", vim.api.nvim_get_commands({})["AI"] ~= nil)
--- maparg('c') 只查 cmdline 映射表不含缩写；:cabbrev 列表 + 每变体守卫指纹
--- 大小写五变体（a/A/ai/Ai/aI）归一（用户裁决）；裸 CR 也展开系 PTY 实测，
--- headless feedkeys 验不了这个
+-- maparg('c') 只查 cmdline 映射表不含缩写；:cabbrev 列表 + 每变体指纹
 do
   local abbr = vim.fn.execute("cabbrev")
   local all = true
   for _, tok in ipairs({ "a", "A", "ai", "Ai", "aI" }) do
-    if not abbr:find("==# '" .. tok .. "' ? 'AI'", 1, true) then all = false end
+    if not abbr:find("_abbrev('" .. tok .. "')", 1, true) then all = false end
   end
   check("6 五变体缩写已注册", all)
 end
+check("6 CR 截获已注册", vim.fn.maparg("<CR>", "c", false, true).rhs
+  and vim.fn.maparg("<CR>", "c", false, true).rhs:find("ai_cmd'._cr", 1, true) ~= nil)
+check("6 内联态生灭 autocmd 在位", #vim.api.nvim_get_autocmds({
+  event = { "CmdlineEnter", "CmdlineLeave" },
+}) >= 2)
+
+-- 判据 6b：透传安全（headless 可测部分）——非 cmdline 语境 _abbrev 原样
+-- 返回词形、_cr 原样返回 CR；变形/截获的活跃路径由 PTY 全链验证
+check("6b _abbrev 非 cmdline 透传", A._abbrev("a") == "a")
+check("6b _cr 非 AI 态透传", A._cr() == "\r")
 
 -- 判据 7：fresh（:AI!）→ 不带 -r
 vim.g.ai_test_fresh = 0
@@ -156,8 +164,9 @@ end)())
 vim.notify = orig_notify
 vim.fn.delete(failflag) -- 就地清，后续判据不带链失效噪音
 
--- 判据 9：❯ 输入框形态——裸调 :AI 走 vim.ui.input，prompt 是图标非
--- "AI" 字样（用户裁决：模仿 :! 前导图标，不占命令行文本），文本直投 M.run
+-- 判据 9：输入框回落形态——裸调 :AI 走 vim.ui.input，prompt 是 agent
+-- 图标（NEUTRAL_ICON 实心）非 "AI" 字样，文本直投 M.run
+local robot = vim.fn.nr2char(0xF06A9)
 local orig_input = vim.ui.input
 local cap_prompt
 vim.ui.input = function(opts, on_confirm)
@@ -169,8 +178,8 @@ set_result("cmd:let g:ai_input = 11")
 local orig_confirm = A.default_confirm
 A.default_confirm = yes -- 命令路径无 opts.confirm，走模块级缺省缝
 vim.api.nvim_cmd({ cmd = "AI" }, {})
-check("9 裸调开 ❯ 输入框（无 AI 字样）", cap_prompt ~= nil
-  and cap_prompt:find("AI", 1, true) == nil and cap_prompt:find("❯", 1, true) ~= nil)
+check("9 裸调开图标输入框（无 AI 字样）", cap_prompt ~= nil
+  and cap_prompt:find("AI", 1, true) == nil and cap_prompt:find(robot, 1, true) ~= nil)
 check("9 输入框文本直投执行", vim.wait(5000, function() return vim.g.ai_input == 11 end))
 A.default_confirm = orig_confirm
 vim.ui.input = orig_input
