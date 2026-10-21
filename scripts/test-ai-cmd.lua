@@ -1,7 +1,7 @@
 -- :AI 自然语言→nvim 操作回归 payload（scripts/test-ai-cmd.sh 驱动，headless
 -- --clean）。假 claude（AGENT_CLAUDE_BIN：dump argv+pwd；payload 文件吐
 -- --output-format json 形状的 JSON；failflag 存在时对 -r 调用 exit 1 模拟
--- 链失效）驱动 vim.system 回调。判据 = 翻译/审查/执行/续链四段语义：
+-- 链失效）驱动 vim.system 回调。判据 = 翻译/可编辑审查/执行/续链四段语义：
 -- 1) cmd: 负载过审后执行；argv 装配（-p/--strict-mcp-config/--output-format
 --    json，无 --model，首问无 -r）；cwd 走 stdpath("run")/ai-cmd
 -- 1b) 续链：json.session_id 捕获，第二问 argv 带 -r <sid>
@@ -44,7 +44,7 @@ local function set_result(text) -- payload = --output-format json 形状
   vim.fn.writefile({ string.format('{"session_id":"sid-fake-1","result":%s}',
     vim.json.encode(text)) }, payload)
 end
-local function yes() return true end
+local function yes(_, body, on_ok) on_ok(body) end -- 审查直通（原样采纳）
 local function last_argv() return vim.fn.readfile(argvf) end
 
 -- 清桩起跑（双向：既不受上轮残留影响，也不在本轮后污染用户真链）
@@ -56,7 +56,7 @@ vim.wait(300, function() return false end)
 -- 回落，更慢且丢 cmd: 前缀）
 vim.g.ai_test_cmd = 0
 set_result("cmd:let g:ai_test_cmd = 42")
-A.run("做个测试", { confirm = yes })
+A.run("做个测试", { review = yes })
 check("1 cmd: 过审后执行", vim.wait(5000, function() return vim.g.ai_test_cmd == 42 end))
 local args = last_argv()
 check("1 argv 装配（-p/json/strict，无 --model/-r）", has_arg(args, "-p")
@@ -75,7 +75,7 @@ check("1 cwd 隔离（run/ai-cmd，不落当前项目）", got_cwd == want_cwd)
 -- 判据 1b：续链——session_id 捕获进第二问
 vim.g.ai_test_chain = 0
 set_result("cmd:let g:ai_test_chain = 1")
-A.run("第二问", { confirm = yes })
+A.run("第二问", { review = yes })
 check("1b 链上第二问执行", vim.wait(5000, function() return vim.g.ai_test_chain == 1 end))
 check("1b 第二问 argv 带 -r <sid>", has_arg(last_argv(), "-r")
   and has_arg(last_argv(), "sid-fake-1"))
@@ -83,13 +83,13 @@ check("1b 第二问 argv 带 -r <sid>", has_arg(last_argv(), "-r")
 -- 判据 2：lua: 负载
 vim.g.ai_test_lua = 0
 set_result("lua:vim.g.ai_test_lua = 7")
-A.run("lua 测试", { confirm = yes })
+A.run("lua 测试", { review = yes })
 check("2 lua: 过审后执行", vim.wait(5000, function() return vim.g.ai_test_lua == 7 end))
 
 -- 判据 3：markdown 围栏包裹
 vim.g.ai_test_fence = 0
 set_result("```lua\nlua:vim.g.ai_test_fence = 9\n```")
-A.run("围栏测试", { confirm = yes })
+A.run("围栏测试", { review = yes })
 check("3 围栏剥离后解析执行", vim.wait(5000, function() return vim.g.ai_test_fence == 9 end))
 
 -- 判据 4：无前缀负载 → 不执行 + WARN（不假成功）
@@ -98,7 +98,7 @@ local orig_notify = vim.notify
 vim.notify = function(msg, _) notes[#notes + 1] = tostring(msg) end
 vim.g.ai_bad = 0
 set_result("let g:ai_bad = 1")
-A.run("胡言乱语", { confirm = yes })
+A.run("胡言乱语", { review = yes })
 check("4 无前缀 → WARN 恰一条", vim.wait(5000, function()
   local c = 0
   for _, n in ipairs(notes) do
@@ -112,7 +112,7 @@ check("4 无前缀负载不执行", vim.g.ai_bad == 0)
 notes = {}
 vim.g.ai_refuse = 0
 set_result("cmd:let g:ai_refuse = 5")
-A.run("拒审测试", { confirm = function() return false end })
+A.run("拒审测试", { review = function() end }) -- 不回 on_ok = 弃审
 vim.wait(3000, function() return false end) -- 给足送达+执行窗口
 check("5 拒审不执行", vim.g.ai_refuse == 0)
 check("5 拒审无 WARN", #notes == 0)
@@ -136,7 +136,7 @@ check("6 无 c-<CR> 劫持残留", vim.tbl_isempty(vim.fn.maparg("<CR>", "c", fa
 -- 判据 7：fresh（:AI!）→ 不带 -r
 vim.g.ai_test_fresh = 0
 set_result("cmd:let g:ai_test_fresh = 3")
-A.run("重置问", { confirm = yes, fresh = true })
+A.run("重置问", { review = yes, fresh = true })
 check("7 fresh 执行", vim.wait(5000, function() return vim.g.ai_test_fresh == 3 end))
 check("7 fresh argv 无 -r", not has_arg(last_argv(), "-r"))
 
@@ -145,7 +145,7 @@ notes = {}
 vim.fn.writefile({ "" }, failflag)
 vim.g.ai_heal = 0
 set_result("cmd:let g:ai_heal = 42")
-A.run("自愈测试", { confirm = yes })
+A.run("自愈测试", { review = yes })
 check("8 链失效自愈后执行", vim.wait(8000, function() return vim.g.ai_heal == 42 end))
 check("8 重试 argv 无 -r", not has_arg(last_argv(), "-r"))
 check("8 重开 WARN 明示", (function()
@@ -157,45 +157,42 @@ end)())
 vim.notify = orig_notify
 vim.fn.delete(failflag) -- 就地清，后续判据不带链失效噪音
 
--- 判据 9：输入框回落形态——裸调 :AI 走 vim.ui.input，prompt 是 agent
--- 图标（NEUTRAL_ICON 实心）非 "AI" 字样，文本直投 M.run
-local robot = vim.fn.nr2char(0xF06A9)
-local orig_input = vim.ui.input
-local cap_prompt
-vim.ui.input = function(opts, on_confirm)
-  cap_prompt = opts.prompt
-  on_confirm("cmd:let g:ai_input = 11")
-end
-vim.g.ai_input = 0
-set_result("cmd:let g:ai_input = 11")
-local orig_confirm = A.default_confirm
-A.default_confirm = yes -- 命令路径无 opts.confirm，走模块级缺省缝
+-- 判据 9：裸调零参——只提示缺少内容，不弹输入框、不触发 claude（用户
+-- 裁决 2026-10-21：图标输入框一并弃用）
+local notes9 = {}
+local orig_notify9 = vim.notify
+vim.notify = function(msg, _) notes9[#notes9 + 1] = tostring(msg) end
+local argv_before = table.concat(vim.fn.readfile(argvf), "\n")
 vim.api.nvim_cmd({ cmd = "AI" }, {})
-check("9 裸调开图标输入框（无 AI 字样）", cap_prompt ~= nil
-  and cap_prompt:find("AI", 1, true) == nil and cap_prompt:find(robot, 1, true) ~= nil)
-check("9 输入框文本直投执行", vim.wait(5000, function() return vim.g.ai_input == 11 end))
-A.default_confirm = orig_confirm
-vim.ui.input = orig_input
+vim.wait(600, function() return false end)
+check("9 裸调 → 提示缺少内容", (function()
+  for _, n in ipairs(notes9) do
+    if n:find("缺少内容", 1, true) then return true end
+  end
+  return false
+end)())
+check("9 裸调不触发 claude（argv 未变）", table.concat(vim.fn.readfile(argvf), "\n") == argv_before)
+vim.notify = orig_notify9
 
--- 判据 9b：snacks 后端（LazyVim 的 vim.ui.input 实现）下 robot 占 icon 位
--- **替换**自带前导 icon，prompt 置空——不追加在其后（用户裁决 2026-10-21）
+-- 判据 10：可编辑审查（用户裁决 2026-10-21：要可编辑，不要确认弹窗）——
+-- snacks 真形状桩（callable table）：负载预填 default、prompt 带 kind；
+-- 回车执行**改后**内容
 do
-  local cap_snack
+  local cap
   package.preload["snacks"] = function()
-    -- 真形状：snacks.input 是 callable table（__call），type 为 "table"
     return { input = setmetatable({}, { __call = function(_, opts, on_confirm)
-      cap_snack = opts
-      if on_confirm then on_confirm("cmd:let g:ai_snack = 5") end
+      cap = opts
+      -- 模拟用户改写后回车：交改后 body（kind 在 prompt，不在输入框内容里）
+      if on_confirm then on_confirm("let g:ai_edit = 8") end
     end }) }
   end
-  vim.g.ai_snack = 0
-  set_result("cmd:let g:ai_snack = 5")
-  A.default_confirm = yes
-  vim.api.nvim_cmd({ cmd = "AI" }, {}) -- 裸调经 ask_box 分流（snacks 优先）
-  check("9b snacks 下 robot 替换 icon 位", cap_snack ~= nil
-    and cap_snack.icon == robot and cap_snack.prompt == "")
-  check("9b snacks 分支文本直投执行", vim.wait(5000, function() return vim.g.ai_snack == 5 end))
-  A.default_confirm = orig_confirm
+  vim.g.ai_edit = 0
+  set_result("cmd:let g:ai_edit = 0")
+  A.run("改写测试", {}) -- 无 review 覆盖 → 走缺省可编辑审查进 snacks 桩
+  check("10 预填负载（body）+ kind 提示", vim.wait(5000, function() return cap ~= nil end)
+    and cap.default == "let g:ai_edit = 0"
+    and cap.prompt:find("cmd", 1, true) ~= nil)
+  check("10 回车执行改后内容", vim.wait(5000, function() return vim.g.ai_edit == 8 end))
   package.loaded["snacks"] = nil
   package.preload["snacks"] = nil
 end

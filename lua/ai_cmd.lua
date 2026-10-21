@@ -53,30 +53,10 @@ function M.reset()
   chain_save(nil)
 end
 
--- 输入框形态（裸 :AI / :a<CR>）：agent 图标（agent_sessions NEUTRAL_ICON
--- 实心 0xF06A9，树/statusline 同款）**替换**输入框自带前导 icon（snacks
--- 默认 icon 渲染如 '>'，LazyVim 即 vim.ui.input 后端），不是追加在其后。
--- 图标内联行已弃（用户裁决 2026-10-21）：cmdline 的 <CR> 原生提交不可
--- 拦截——expr 映射与回调映射双实证拦不住（E492 案），图标行无法作为
--- 命令提交；setcmdprompt 亦不存在（vimfn 只有只读 getcmdprompt，vim.fn
--- 惰性代理假报存在性）。此路不通，保 :AI 文本命令
-local INLINE_ICON = vim.fn.nr2char(0xF06A9)
-
-local function ask_box(fresh)
-  local function cb(q)
-    if q and q:find("%S") then M.run(vim.trim(q), { fresh = fresh }) end
-  end
-  local ok, snacks = pcall(require, "snacks")
-  -- snacks.input 是带 __call 的 callable table（type 为 "table" 非
-  -- "function"——PTY 实测判 function 必滑回 vim.ui.input 老路），判空后
-  -- 直接 pcall 调用，败则回落
-  if ok and type(snacks) == "table" and snacks.input ~= nil then
-    if pcall(snacks.input, { prompt = "", icon = INLINE_ICON }, cb) then
-      return
-    end
-  end
-  vim.ui.input({ prompt = INLINE_ICON .. " " }, cb)
-end
+-- 输入框/图标内联形态均已弃（用户裁决 2026-10-21）：图标内联行因 cmdline
+-- 的 <CR> 原生提交不可拦截（expr/回调映射双实证，E492 案）、setcmdprompt
+-- 不存在、命令名必须 ASCII 大写而结构性不通；裸调则只提示缺内容，不弹
+-- 任何输入框。唯一形态 = 带参 :AI 文本命令（五变体缩写归一）
 
 local function build_prompt(query)
   local bufname = vim.api.nvim_buf_get_name(0)
@@ -133,17 +113,27 @@ local function execute(kind, body)
   end
 end
 
--- 缺省审查对话框（模块字段 = 测试缝，可整体替换）：confirm 数字选择，
--- Enter/1=执行，Esc/2=取消
-function M.default_confirm(kind, body)
-  return vim.fn.confirm(("AI 生成 (%s):\n%s\n\n执行？"):format(kind, body), "执行\n取消") == 1
+-- 缺省审查形态（模块字段 = 测试缝，可整体替换）：**可编辑输入框**（用户
+-- 裁决 2026-10-21：要可编辑，不要确认/取消弹窗）——负载预填进 snacks
+-- 输入框（与 ':' 的 vim.ui.input 同款外观，默认 chevron icon 不换），
+-- prompt 带 kind；回车执行**改后**内容，Esc/空弃。snacks.input 是带
+-- __call 的 callable table（type 为 "table" 非 "function"），判空后
+-- pcall 直调，败则回落 vim.ui.input
+function M.default_review(kind, body, on_ok)
+  local ok, snacks = pcall(require, "snacks")
+  if ok and type(snacks) == "table" and snacks.input ~= nil then
+    if pcall(snacks.input, { prompt = kind .. ":", default = body }, on_ok) then
+      return
+    end
+  end
+  vim.ui.input({ prompt = kind .. ": ", default = body }, on_ok)
 end
 
--- opts.confirm(kind, body) -> boolean：单次审查覆盖；opts.fresh=true
--- 重置链再问（:AI!）；opts._retried 内部自愈标记防循环
+-- opts.review(kind, body, on_ok)：单次审查覆盖；opts.fresh=true 重置链
+-- 再问（:AI!）；opts._retried 内部自愈标记防循环
 function M.run(query, opts)
   opts = opts or {}
-  local confirm = opts.confirm or M.default_confirm
+  local review = opts.review or M.default_review
   vim.api.nvim_echo({ { "AI ▸ 生成中…", "Comment" } }, false, {})
   local cwd = vim.fn.stdpath("run") .. "/ai-cmd"
   vim.fn.mkdir(cwd, "p")
@@ -159,7 +149,7 @@ function M.run(query, opts)
         if sid and not opts._retried then -- 链失效（transcript 被清等）：重开一次
           M.reset()
           vim.notify("AI ▸ 续链失效，已重开新链", vim.log.levels.WARN)
-          M.run(query, { confirm = confirm, _retried = true })
+          M.run(query, { review = review, _retried = true })
           return
         end
         vim.notify("AI ▸ claude 调用失败 (code=" .. tostring(res.code) .. "): "
@@ -179,11 +169,13 @@ function M.run(query, opts)
           vim.log.levels.WARN)
         return
       end
-      if confirm(kind, body) then
-        execute(kind, body)
-      else
-        vim.api.nvim_echo({ { "AI ▸ 已取消", "Comment" } }, false, {})
-      end
+      review(kind, body, function(edited)
+        if edited and edited:find("%S") then
+          execute(kind, vim.trim(edited))
+        else
+          vim.api.nvim_echo({ { "AI ▸ 已取消", "Comment" } }, false, {})
+        end
+      end)
     end)
   end)
 end
@@ -192,11 +184,12 @@ function M.setup()
   vim.api.nvim_create_user_command("AI", function(o)
     local args = vim.trim(o.args or "")
     if args == "" then
-      ask_box(o.bang)
-    else
-      M.run(args, { fresh = o.bang })
+      vim.notify("AI: 缺少内容——用法 :AI <自然语言>（如 :AI 在新tab中打开mysql）",
+        vim.log.levels.WARN)
+      return
     end
-  end, { nargs = "*", bang = true, desc = "自然语言 → nvim 操作（claude -p 续链，先审后执；! 重置链）" })
+    M.run(args, { fresh = o.bang })
+  end, { nargs = "*", bang = true, desc = "自然语言 → nvim 操作（claude -p 续链，可编辑审查；! 重置链）" })
   -- 入口五变体（用户裁决）：a/A/ai/Ai/aI 经带守卫缩写归一成 :AI 文本——
   -- :a query / :a! 即 :AI query / :AI!（词内续打如 :args 不触发，缩写只在
   -- 非词字符跟上时炸；裸 CR 也展开，PTY 实测，headless feedkeys 假阴勿信；
