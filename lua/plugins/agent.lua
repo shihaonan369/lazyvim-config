@@ -6,7 +6,6 @@ local agent = require("agent_sessions")
 -- 2026-10-21 案；codex 态恰好幸存是因合并裁决者落在 codex 侧）。三家分流：
 -- claude native / codex 在此接线；claude plugin 态（CLAUDE_BACKEND=plugin）
 -- 交给 claudecode.nvim；opencode 走 plugins/opencode.lua。
-local draft_seq = 0
 
 local function claude_native()
   return vim.g.ai_assistant == "claude" and vim.g.claude_backend ~= "plugin"
@@ -32,8 +31,10 @@ return {
     end, { desc = "New agent session (named)" })
 
     -- Smart Add：树感知 path 提取共用；claude native 构造 @引用草稿（M.draft，
-    -- 不提交，过目后自己 CR；@path 字面文本 claude 原生理解，2026-10-20 -p
-    -- 实证），codex 维持纯路径投喂。选区超 100 行落临时文件改 @tmp 引用
+    -- 不提交，过目后自己 CR）。行范围用 claude 原生语法 @path:l1-l2 /
+    -- @path:l（2026-10-21 -p 实证：范围生效、范围后换行正文不干扰）；
+    -- **选区原文不随发**——claude 按范围自己读盘，超长选区同样只是范围引用
+    -- （用户裁决 2026-10-21）；codex 维持纯路径投喂
     vim.keymap.set({ "n", "v" }, "<leader>as", function()
       local ft = vim.bo.filetype
       local tree_types = { NvimTree = true, ["neo-tree"] = true, oil = true, minifiles = true, netrw = true }
@@ -67,16 +68,10 @@ return {
       local mode = vim.fn.mode()
       if path == nil and (mode == "v" or mode == "V" or mode == "\22") then
         local l1, l2 = vim.fn.line("'<"), vim.fn.line("'>")
-        local lines = vim.fn.getline(l1, l2)
         local fpath = vim.fn.expand("%:p")
-        if fpath ~= "" and #lines > 0 then
-          if #lines > 100 then
-            draft_seq = draft_seq + 1
-            local tmp = vim.fn.stdpath("run") .. "/agent-draft-" .. vim.fn.getpid() .. "-" .. draft_seq .. ".txt"
-            vim.fn.writefile(lines, tmp)
-            return agent.draft("@" .. tmp .. "（选区自 " .. fpath .. " L" .. l1 .. "-L" .. l2 .. "）\n")
-          end
-          return agent.draft("@" .. fpath .. " L" .. l1 .. "-L" .. l2 .. "：\n" .. table.concat(lines, "\n"))
+        if fpath ~= "" and l1 > 0 and l2 >= l1 then
+          local range = (l1 == l2) and (":" .. l1) or (":" .. l1 .. "-" .. l2)
+          return agent.draft("@" .. fpath .. range .. " ")
         end
       end
       path = path or vim.fn.expand("%:p")

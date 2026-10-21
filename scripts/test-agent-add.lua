@@ -1,9 +1,11 @@
 -- Smart Add 草稿注入回归 payload（scripts/test-agent-add.sh 驱动，headless --clean）。
 -- 假 TUI（fake-claude：延迟渲染 banner+❯ 后 exec cat 存活）驱动就绪队列，
--- 判据 = M.draft 的注入序列与「不提交」语义（ADR 0007 层 1）：
+-- 判据 = M.draft 的注入序列与「不提交」语义（ADR 0007 层 1；行范围语法
+-- @path:l1-l2 / @path:l 是 claude 原生格式，2026-10-21 -p 实证，选区原文
+-- 不随发——claude 按范围自己读盘）：
 -- 1) 空池冷建：draft 无会话时自动 M.new（AGENT_CLAUDE_BIN 冒充，native 态）
 -- 2) 序列：Ctrl-U(\21) 先于括号粘贴包 [200~...[201~（全文同包）
--- 3) 多行原文完整入草稿（\n 在粘贴包内，不被拆包/不提前提交）
+-- 3) 草稿内容精确：范围引用原文（无选区文本、无 CR）
 -- 4) 草稿无 CR：draft 之后不产生新的 \13
 package.path = REPO .. "/lua/?.lua;" .. package.path
 vim.g.ai_assistant = "claude" -- 对齐真实配置默认（options.lua）
@@ -51,23 +53,20 @@ end
 local lib = dofile(REPO .. "/scripts/testlib.lua") -- 共享脚手架：check/finish
 local check = lib.check
 
--- 判据 1/2/3：空池多行草稿（<leader>as 选区形态）
-local pf = vim.fn.tempname()
-vim.fn.writefile({ "alpha", "beta", "gamma" }, pf)
-A.draft("@/repo/lua/x.lua L3-L5：\n" .. table.concat(vim.fn.readfile(pf), "\n"))
+-- 判据 1/2/3：空池范围引用草稿（<leader>as 选区形态：仅 @path:l1-l2，无原文）
+A.draft("@/repo/lua/x.lua:3-5 ")
 check("1 空池冷建", A.count() == 1)
 check("1 草稿已送达", vim.wait(5000, function()
-  return idx_of("[200~@/repo/lua/x.lua") ~= nil
+  return idx_of("[200~@/repo/lua/x.lua:3-5") ~= nil
 end))
 check("2 Ctrl-U 先于粘贴包", (function()
-  local i_u, i_p = idx_exact("\21"), idx_of("[200~@/repo/lua/x.lua")
+  local i_u, i_p = idx_exact("\21"), idx_of("[200~@/repo/lua/x.lua:3-5")
   return i_u ~= nil and i_p ~= nil and i_u < i_p
 end)())
-check("3 多行原文同包完整", (function()
-  local i_p = idx_of("[200~@/repo/lua/x.lua")
+check("3 范围引用原文精确（无选区文本）", (function()
+  local i_p = idx_of("[200~@/repo/lua/x.lua:3-5")
   if not i_p then return false end
-  return sent[i_p]:find("alpha\nbeta\ngamma", 1, true) ~= nil
-    and sent[i_p]:find("\27[201~", 1, true) ~= nil
+  return sent[i_p] == "\27[200~@/repo/lua/x.lua:3-5 \27[201~"
 end)())
 
 -- 判据 4：二次草稿（就绪态同步投递）不产生新 CR
@@ -85,5 +84,4 @@ for _, sid in ipairs(ids) do A.delete(sid, true) end
 vim.wait(2000, function() return A.count() == 0 end)
 vim.api.nvim_chan_send = orig_send
 vim.fn.delete(fake)
-vim.fn.delete(pf)
 lib.finish()
