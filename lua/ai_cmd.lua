@@ -81,11 +81,15 @@ local function ask_box(fresh)
     if q and q:find("%S") then M.run(vim.trim(q), { fresh = fresh }) end
   end
   local ok, snacks = pcall(require, "snacks")
-  if ok and type(snacks) == "table" and type(snacks.input) == "function" then
-    snacks.input({ prompt = "", icon = INLINE_ICON }, cb)
-  else
-    vim.ui.input({ prompt = INLINE_ICON .. " " }, cb)
+  -- snacks.input 是带 __call 的 callable table（type 为 "table" 非
+  -- "function"——PTY 实测判 function 必滑回 vim.ui.input 老路），判空后
+  -- 直接 pcall 调用，败则回落
+  if ok and type(snacks) == "table" and snacks.input ~= nil then
+    if pcall(snacks.input, { prompt = "", icon = INLINE_ICON }, cb) then
+      return
+    end
   end
+  vim.ui.input({ prompt = INLINE_ICON .. " " }, cb)
 end
 
 -- CR 截获：AI 态下整行即查询（吞掉提交——查询不进命令历史），空查询回落

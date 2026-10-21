@@ -189,10 +189,11 @@ vim.ui.input = orig_input
 do
   local cap_snack
   package.preload["snacks"] = function()
-    return { input = function(opts, on_confirm)
+    -- 真形状：snacks.input 是 callable table（__call），type 为 "table"
+    return { input = setmetatable({}, { __call = function(_, opts, on_confirm)
       cap_snack = opts
       if on_confirm then on_confirm("cmd:let g:ai_snack = 5") end
-    end }
+    end }) }
   end
   vim.g.ai_snack = 0
   set_result("cmd:let g:ai_snack = 5")
