@@ -174,28 +174,15 @@ end)())
 check("9 裸调不触发 claude（argv 未变）", table.concat(vim.fn.readfile(argvf), "\n") == argv_before)
 vim.notify = orig_notify9
 
--- 判据 10：可编辑审查（用户裁决 2026-10-21：要可编辑，不要确认弹窗）——
--- snacks 真形状桩（callable table）：负载预填 default、prompt 带 kind；
--- 回车执行**改后**内容
-do
-  local cap
-  package.preload["snacks"] = function()
-    return { input = setmetatable({}, { __call = function(_, opts, on_confirm)
-      cap = opts
-      -- 模拟用户改写后回车：交改后 body（kind 在 prompt，不在输入框内容里）
-      if on_confirm then on_confirm("let g:ai_edit = 8") end
-    end }) }
-  end
-  vim.g.ai_edit = 0
-  set_result("cmd:let g:ai_edit = 0")
-  A.run("改写测试", {}) -- 无 review 覆盖 → 走缺省可编辑审查进 snacks 桩
-  check("10 预填负载（body）+ kind 提示", vim.wait(5000, function() return cap ~= nil end)
-    and cap.default == "let g:ai_edit = 0"
-    and cap.prompt:find("cmd", 1, true) ~= nil)
-  check("10 回车执行改后内容", vim.wait(5000, function() return vim.g.ai_edit == 8 end))
-  package.loaded["snacks"] = nil
-  package.preload["snacks"] = nil
-end
+-- 判据 10：缺省审查 = 复用 ':' 本尊（用户裁决 2026-10-21 三修）——负载
+-- 规整成单行 cmdline 文本：cmd 原样/行间并 " | "；lua 加前缀、行间并
+-- "; "。feedkeys 预填属交互层，PTY 全链验（headless feedkeys 假阴）
+check("10 cmd 单行原样", A.review_line("cmd", "tabnew | terminal mysql")
+  == "tabnew | terminal mysql")
+check("10 cmd 多行并 | ", A.review_line("cmd", "tabnew\nterminal mysql")
+  == "tabnew | terminal mysql")
+check("10 lua 加前缀并 ; ", A.review_line("lua", "vim.cmd('tabnew')\nvim.cmd('terminal mysql')")
+  == "lua vim.cmd('tabnew'); vim.cmd('terminal mysql')")
 
 -- 收尾（链桩不留假 sid 在用户 run 目录）
 vim.fn.delete(fake)

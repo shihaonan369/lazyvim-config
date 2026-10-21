@@ -37,5 +37,5 @@ _Avoid_: 把 session 退出、picker 开关当作让位（它们不得改 pane �
 _Avoid_: 用 tab 指代 session 或文件
 
 **自然语言直驱（:AI）**:
-把一句自然语言翻译成 nvim 操作的命令（claude -p 单发续链，lua/ai_cmd.lua）：生成 cmd:/lua: 负载后开**可编辑审查**——负载预填进 snacks 输入框（':' 的 vim.ui.input 同款，prompt 带 kind），改完回车执行**改后**内容、Esc 弃；解析失败一律不执行（不假成功）。唯一形态 = 带参 `:AI query`；裸调只提示缺少内容（不弹输入框，用户裁决 2026-10-21）。入口大小写不拘——a/A/ai/Ai/aI 经带整行守卫的 cmdline 缩写归一成 :AI 文本（:args 等词内续打不受累；:append 让位）。链 sid 持久在 stdpath("cache")/ai-cmd——上下文/调查结果跨 nvim 重启续用（重复问题不重复调查），`:AI!` 重置链；单发 cwd 在 stdpath("run")/ai-cmd，transcript 不落当前项目、不进 -r/aC picker。调查分档：纯操作类不查文件直接翻（保快）；事实参数（连接串等）查实不臆测——$() 现场取值优先，且 $() 仅在 :terminal/! 等 shell 上下文展开（纯 Ex 参数只认 $VAR）。
+把一句自然语言翻译成 nvim 操作的命令（claude -p 单发续链，lua/ai_cmd.lua）：生成 cmd:/lua: 负载后**复用 ':' 本尊审查**（用户裁决 2026-10-21 三修：一模一样，不是再造一个差不多的输入框）——负载规整单行后预填进真 cmdline（cmd 原样/行间并 `|`；lua 加 `lua ` 前缀、行间并 `;`），原生编辑、Enter 原生执行、Esc 原生弃，无中间执行器；解析失败不预填（不假成功）。唯一形态 = 带参 `:AI query`；裸调只提示缺少内容。入口大小写不拘——a/A/ai/Ai/aI 经带整行守卫的 cmdline 缩写归一成 :AI 文本（:args 等词内续打不受累；:append 让位）。链 sid 持久在 stdpath("cache")/ai-cmd——上下文/调查结果跨 nvim 重启续用（重复问题不重复调查），`:AI!` 重置链；单发 cwd 在 stdpath("run")/ai-cmd，transcript 不落当前项目、不进 -r/aC picker。调查分档：纯操作类不查文件直接翻（保快）；事实参数（连接串等）查实不臆测——$() 现场取值优先，且 $() 仅在 :terminal/! 等 shell 上下文展开（纯 Ex 参数只认 $VAR）。
 _Avoid_: 把 :AI 当 session 或 Agent（翻译链不是对话体，不进 session 池、无 pane/树/statusline 形态）

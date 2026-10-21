@@ -113,20 +113,23 @@ local function execute(kind, body)
   end
 end
 
--- 缺省审查形态（模块字段 = 测试缝，可整体替换）：**可编辑输入框**（用户
--- 裁决 2026-10-21：要可编辑，不要确认/取消弹窗）——负载预填进 snacks
--- 输入框（与 ':' 的 vim.ui.input 同款外观，默认 chevron icon 不换），
--- prompt 带 kind；回车执行**改后**内容，Esc/空弃。snacks.input 是带
--- __call 的 callable table（type 为 "table" 非 "function"），判空后
--- pcall 直调，败则回落 vim.ui.input
+-- 缺省审查形态（模块字段 = 测试缝，可整体替换）：**复用 ':' 本尊**（用户
+-- 裁决 2026-10-21 三修：一模一样，不是再造一个差不多的输入框）——负载
+-- 规整成单行后 feedkeys 预填进真 cmdline，原生编辑，Enter 即原生执行
+-- （cmd 原样、lua 加前缀），Esc 原生弃；on_ok 不回——执行与否由 cmdline
+-- 自身决定，没有中间执行器
 function M.default_review(kind, body, on_ok)
-  local ok, snacks = pcall(require, "snacks")
-  if ok and type(snacks) == "table" and snacks.input ~= nil then
-    if pcall(snacks.input, { prompt = kind .. ":", default = body }, on_ok) then
-      return
-    end
+  vim.fn.feedkeys(":" .. M.review_line(kind, body), "n")
+end
+
+-- 负载 → 可单行预填的 cmdline 文本：cmd 行间并 " | "；lua 加 lua 前缀、
+-- 行间并 "; "（分号是 lua 合法语句分隔）
+function M.review_line(kind, body)
+  local lines = vim.split(body, "\n", { trimempty = true })
+  if kind == "lua" then
+    return "lua " .. table.concat(lines, "; ")
   end
-  vim.ui.input({ prompt = kind .. ": ", default = body }, on_ok)
+  return table.concat(lines, " | ")
 end
 
 -- opts.review(kind, body, on_ok)：单次审查覆盖；opts.fresh=true 重置链
