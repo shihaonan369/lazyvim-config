@@ -11,6 +11,10 @@ end
 map("n", "<leader>at", function() require("agent_tab").toggle() end, { desc = "Agent tab", silent = true })
 require("agent_tab").setup()
 
+-- :AI <自然语言>：自然语言直驱 nvim 操作（claude -p 单发翻译，先审后执，
+-- lua/ai_cmd.lua）。:ai 小写由模块 setup 里的带守卫 cmdline 缩写补形
+require("ai_cmd").setup()
+
 -- <leader>a1..9：直达位置编号 #n（存活序，CONTEXT.md 词汇；树/statusline
 -- 图标串/picker 同序，切换不重排）。display 全语义不夺焦——pane 收着则弹出、
 -- 开着换 buffer、agent tab 内右窗换 buffer；「带视角过去」是 at/aa 的职责，

@@ -35,3 +35,7 @@ _Avoid_: 把 session 退出、picker 开关当作让位（它们不得改 pane �
 **Tab page**:
 一个项目/任务的工作区：一套代码窗口布局。不按 session 分 tab（如一个 agent 一个 tab，docs/adr/0001）；唯一例外是专属 Agent tab——所有 session 共用的一个工作区 tab（docs/adr/0005）。
 _Avoid_: 用 tab 指代 session 或文件
+
+**自然语言直驱（:AI）**:
+把一句自然语言翻译成 nvim 操作的命令（claude -p 单发，lua/ai_cmd.lua）：生成 cmd:/lua: 负载，**先审后执**（confirm 过目，Enter/Esc 裁决），解析失败或拒审一律不执行。单发请求跑在 stdpath("run")/ai-cmd 下——不产生项目 session、不进 -r/aC picker。:ai 小写由带守卫的 cmdline 缩写补形（nvim 用户命令强制大写开头）。
+_Avoid_: 把 :AI 当 session 或 Agent（单发翻译，无对话历史、不进 session 池）
