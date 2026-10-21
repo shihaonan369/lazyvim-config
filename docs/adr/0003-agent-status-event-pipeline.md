@@ -128,3 +128,12 @@ statusline 的 agent 段整体隐藏——树已承载全部信息，statusline 
 不一致）。取舍：罕见窗口的草稿被牺牲，换 rename 恒定干净执行。名字为
 **单写者**：claude transcript 是唯一权威，nvim 只发命令永不落名（失败 =
 树保持旧名，不假成功）。
+
+修订补记（2026-10-21，resume 改名失配案）：PTY 全周期探针实测 claude
+2.1.274——resume 后的 `/rename` **只改进程内存**：custom-title.json 与
+transcript 均无写入（改名 TUI 生效、干净退出、盘上零痕迹；fresh 会话
+08:27 案例则 json 当刻落盘——不对称待上游澄清）。树名回流通道本身无罪
+（SessionStart resume 报文实测字段齐全、json 兜底与 fsevent 增量均有
+回归门）。处置：`M.rename` 发送后 1.5s/6s 双点读 custom-title.json，
+失配 notify 一条明示不同步——**不本地落名假装成功**（单写者裁决不动），
+tw_path 未登记（fresh 早期）静默跳过。test-agent-status 增三判据。

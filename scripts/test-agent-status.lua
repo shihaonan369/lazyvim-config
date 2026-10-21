@@ -125,9 +125,32 @@ check("/rename → transcript 增量同步", vim.wait(2000, function()
   return A.list()[1] and A.list()[1].name == "新名字"
 end))
 
--- nvim 侧改名（claude）：只发命令不落名——名字单点在回流，假成功不科学
+-- nvim 侧改名（claude）：只发命令不落名——名字单点在回流，假成功不科学。
+-- /rename 持久化核实（ADR 0003 修订 2026-10-21）：claude 已落 json → 双点
+-- 核实通过静默；未落盘（resume 后已知行为）→ notify 恰一条，仍不本地落名
+local notes = {}
+local orig_notify = vim.notify
+vim.notify = function(msg, _) notes[#notes + 1] = tostring(msg) end
 A.rename(A.list()[1].id, "本地改名")
 check("r 只发命令不本地落名（claude 回流单点）", A.list()[1].name == "新名字")
+vim.fn.writefile({ '{"customTitle":"本地改名"}' }, tdir .. "/sid42/custom-title.json")
+vim.wait(8000, function() return false end) -- 越过双点核实窗口（1.5s+6s）
+check("json 已落 → 无失配 notify", (function()
+  for _, n in ipairs(notes) do
+    if n:find("未持久化", 1, true) then return false end
+  end
+  return true
+end)())
+A.rename(A.list()[1].id, "幽灵改名") -- 不写 json：模拟 claude 只改内存
+check("未落盘 → notify 恰一条", vim.wait(9500, function()
+  local c = 0
+  for _, n in ipairs(notes) do
+    if n:find("未持久化", 1, true) then c = c + 1 end
+  end
+  return c == 1
+end))
+check("失配仍不本地落名", A.list()[1].name == "新名字")
+vim.notify = orig_notify
 
 -- transcript 晚出生（2026-10-19 bug）：登记时文件未生 → 盯父目录等出生，
 -- 出生后 fsevent 直达（不再依赖状态事件搭车）；出生后的追加也走文件级 fsevent

@@ -1152,11 +1152,43 @@ end
 -- "粘贴待审"语义，另回事），且 CR 与文字分包延时（详见函数内注释）。注入走
 -- 被选中 session 自己的 channel，选谁发谁。codex/opencode 无回流通道，暂
 -- 本地落名（TODO：各家斜杠命令确认后改走注入+回流）
+-- /rename 持久化核实（不假成功，ADR 0003 修订 2026-10-21）：实测 claude
+-- 2.1.274 在 resume 后的 /rename 只改进程内存——custom-title.json 与
+-- transcript 双静默，退出即失（PTY 全周期探针：改名 TUI 生效+干净退出，
+-- 盘上零痕迹）。发送改名后 1.5s/6s 两点读 custom-title.json（仅 SessionStart
+-- 已登记 transcript 的会话），双点仍失配则 notify 明示不同步——绝不本地
+-- 落名假装成功。fresh 会话的落盘时机未实测，tw_path 未登记时静默跳过。
+local function rename_persist_check(s, name)
+  if not s.tw_path then return end
+  s.last_rename_sent = name
+  local ct = vim.fn.fnamemodify(s.tw_path, ":h")
+    .. "/" .. vim.fn.fnamemodify(s.tw_path, ":t:r") .. "/custom-title.json"
+  local function persisted()
+    local fh = io.open(ct, "r")
+    if not fh then return false end
+    local data = fh:read("*a")
+    fh:close()
+    local ok, obj = pcall(vim.json.decode, data or "")
+    return ok and type(obj) == "table" and obj.customTitle == name
+  end
+  vim.defer_fn(function()
+    if persisted() then return end
+    vim.defer_fn(function()
+      if persisted() then return end
+      local _, cur = by_id(s.id)
+      if not cur or cur.last_rename_sent ~= name then return end -- 连改去抖：只报最后一次
+      rt_log("rename-not-persisted id=" .. s.id .. " name=" .. name)
+      vim.notify("agent: claude 未持久化此改名（resume 后已知不落盘），树名不同步", vim.log.levels.WARN)
+    end, 4500)
+  end, 1500)
+end
+
 function M.rename(id, name)
   local _, s = by_id(id)
   if not s or not name or name == "" then return end
   if S.ptype == "claude" then
     M.command(id, "/rename " .. name)
+    rename_persist_check(s, name)
   else
     s.name = name
     emit()
