@@ -37,5 +37,5 @@ _Avoid_: 把 session 退出、picker 开关当作让位（它们不得改 pane �
 _Avoid_: 用 tab 指代 session 或文件
 
 **自然语言直驱（:AI）**:
-把一句自然语言翻译成 nvim 操作的命令（claude -p 单发，lua/ai_cmd.lua）：生成 cmd:/lua: 负载，**先审后执**（confirm 过目，Enter/Esc 裁决），解析失败或拒审一律不执行。单发请求跑在 stdpath("run")/ai-cmd 下——不产生项目 session、不进 -r/aC picker。:ai 小写由带守卫的 cmdline 缩写补形（nvim 用户命令强制大写开头）。
-_Avoid_: 把 :AI 当 session 或 Agent（单发翻译，无对话历史、不进 session 池）
+把一句自然语言翻译成 nvim 操作的命令（claude -p 单发续链，lua/ai_cmd.lua）：生成 cmd:/lua: 负载，**先审后执**（confirm 过目，Enter/Esc 裁决），解析失败或拒审一律不执行。链 sid 持久在 stdpath("cache")/ai-cmd——上下文/调查结果跨 nvim 重启续用（重复问题不重复调查），`:AI!` 重置链；单发 cwd 在 stdpath("run")/ai-cmd，transcript 不落当前项目、不进 -r/aC picker。调查分档：纯操作类不查文件直接翻（保快）；事实参数（连接串等）查实不臆测——$() 现场取值优先，且 $() 仅在 :terminal/! 等 shell 上下文展开（纯 Ex 参数只认 $VAR）。:ai 小写由带守卫的 cmdline 缩写补形（nvim 用户命令强制大写开头）。
+_Avoid_: 把 :AI 当 session 或 Agent（翻译链不是对话体，不进 session 池、无 pane/树/statusline 形态）
