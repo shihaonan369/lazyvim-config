@@ -17,10 +17,17 @@ session 池/pane/领地/tab 视口/树/状态管线/名字续流/skill/回归门
 
 ## 决定
 
-- **native 后端为默认**：`lua/plugins/claude.lua`（本地 dir spec，与 codex.lua
-  同构）持有全部键位；`adapters.claude.new` 自构 `{claude}` 直 spawn（cmd/env
+- **native 后端为默认**：`lua/plugins/agent.lua`（**唯一**的本地 dir spec，
+  吞并原 codex.lua 与 claude.lua）持有全部键位，config 内按 ai_assistant/
+  claude_backend 分流；`adapters.claude.new` 自构 `{claude}` 直 spawn（cmd/env
   经既有 `claude_spawn_cmd`/`claude_spawn_env` 收口，`--settings`/NO_FLICKER/
-  沙箱 bypassPermissions 语义不变）。
+  沙箱 bypassPermissions 语义不变）。另注册 `:ClaudeCode` 兼容命令（无参=新建、
+  带参透传，ADR 0001 的命令面契约）。
+  **为什么必须唯一 dir spec（2026-10-21 案）**：lazy.nvim 把同 dir 的多个
+  spec 合并成一个裁决者——claude-config 与 codex-config 同指
+  stdpath("config") 时，claude 态两者双双从 plugins 表消失（症状：「只有
+  agent tab 没有 pane」——pane 键位全 housed 在 spec 里，而 `<leader>at`
+  在全局 keymaps.lua 幸存）。codex 态恰好幸存是因裁决落在 codex 侧。
 - **磨合期双后端并存，一键回退**：`vim.g.claude_backend`（options.lua 默认
   `"native"`，`CLAUDE_BACKEND` env 覆盖，仿 `ai_assistant` 同款隐喻）。plugin
   态下 provider 桥、`:ClaudeCode` 冷启动链、宽度守卫原样保留——就是今天。
@@ -66,6 +73,12 @@ session 池/pane/领地/tab 视口/树/状态管线/名字续流/skill/回归门
 
 ## 已知边界
 
+- **本仓 dir spec 只允许一个**（agent.lua）——再添 `dir = stdpath("config")`
+  的 spec 会触发 lazy 同 dir 合并互吞（见决定节的 2026-10-21 案）。
+- **headless 全配置 ≠ 真实会话**：`nvim --headless`（真配置）下 lazy 的
+  启动加载不完整（keymaps.lua 不被 source、start 插件 config 不跑）——spec
+  层验证必须走 PTY 真 TUI（`script -q <log> nvim --listen <sock>` +
+  `--remote-expr` 驱动，本仓 asend 同款通道）。
 - native 态 `S.claude_cache` 只作「上次可执行」记忆沿用（skill aspawn 后同
   二进制），env 不沿用（那是插件 IDE 三件套）。
 - `AGENT_CLAUDE_BIN` 在模块加载时求值——headless 门须先设 env 再
