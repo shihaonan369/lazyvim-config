@@ -72,12 +72,20 @@ function M._abbrev(tok)
   return INLINE_ICON .. " "
 end
 
--- 输入框回落形态（裸 :AI / :a<CR> 空查询）：同一 agent 图标做 prompt。
--- 须声明在 M._cr 之前（局部前向引用落 nil 全局）
+-- 输入框回落形态（裸 :AI / :a<CR> 空查询）：agent 图标**替换**输入框自带
+-- 前导 icon（snacks 默认 icon 渲染如 '>'，LazyVim 即 vim.ui.input 后端），
+-- 不是追加在它后面——robot 占 icon 位、prompt 置空；无 snacks 回落原生
+-- prompt。须声明在 M._cr 之前（局部前向引用落 nil 全局）
 local function ask_box(fresh)
-  vim.ui.input({ prompt = INLINE_ICON .. " " }, function(q)
+  local function cb(q)
     if q and q:find("%S") then M.run(vim.trim(q), { fresh = fresh }) end
-  end)
+  end
+  local ok, snacks = pcall(require, "snacks")
+  if ok and type(snacks) == "table" and type(snacks.input) == "function" then
+    snacks.input({ prompt = "", icon = INLINE_ICON }, cb)
+  else
+    vim.ui.input({ prompt = INLINE_ICON .. " " }, cb)
+  end
 end
 
 -- CR 截获：AI 态下整行即查询（吞掉提交——查询不进命令历史），空查询回落

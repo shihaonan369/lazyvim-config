@@ -184,6 +184,28 @@ check("9 输入框文本直投执行", vim.wait(5000, function() return vim.g.ai
 A.default_confirm = orig_confirm
 vim.ui.input = orig_input
 
+-- 判据 9b：snacks 后端（LazyVim 的 vim.ui.input 实现）下 robot 占 icon 位
+-- **替换**自带前导 icon，prompt 置空——不追加在其后（用户裁决 2026-10-21）
+do
+  local cap_snack
+  package.preload["snacks"] = function()
+    return { input = function(opts, on_confirm)
+      cap_snack = opts
+      if on_confirm then on_confirm("cmd:let g:ai_snack = 5") end
+    end }
+  end
+  vim.g.ai_snack = 0
+  set_result("cmd:let g:ai_snack = 5")
+  A.default_confirm = yes
+  vim.api.nvim_cmd({ cmd = "AI" }, {}) -- 裸调经 ask_box 分流（snacks 优先）
+  check("9b snacks 下 robot 替换 icon 位", cap_snack ~= nil
+    and cap_snack.icon == robot and cap_snack.prompt == "")
+  check("9b snacks 分支文本直投执行", vim.wait(5000, function() return vim.g.ai_snack == 5 end))
+  A.default_confirm = orig_confirm
+  package.loaded["snacks"] = nil
+  package.preload["snacks"] = nil
+end
+
 -- 收尾（链桩不留假 sid 在用户 run 目录）
 vim.fn.delete(fake)
 vim.fn.delete(payload)
