@@ -120,8 +120,17 @@ check("5 拒审无 WARN", #notes == 0)
 -- 判据 6：setup 装配——:AI 命令注册 + :ai 带守卫缩写在位
 A.setup()
 check("6 :AI 命令已注册", vim.api.nvim_get_commands({})["AI"] ~= nil)
--- maparg('c') 只查 cmdline 映射表不含缩写；:cabbrev 列表 + 守卫指纹为准
-check("6 :ai 缩写已注册", vim.fn.execute("cabbrev"):find("? 'AI' : 'ai'", 1, true) ~= nil)
+-- maparg('c') 只查 cmdline 映射表不含缩写；:cabbrev 列表 + 每变体守卫指纹
+-- 大小写五变体（a/A/ai/Ai/aI）归一（用户裁决）；裸 CR 也展开系 PTY 实测，
+-- headless feedkeys 验不了这个
+do
+  local abbr = vim.fn.execute("cabbrev")
+  local all = true
+  for _, tok in ipairs({ "a", "A", "ai", "Ai", "aI" }) do
+    if not abbr:find("==# '" .. tok .. "' ? 'AI'", 1, true) then all = false end
+  end
+  check("6 五变体缩写已注册", all)
+end
 
 -- 判据 7：fresh（:AI!）→ 不带 -r
 vim.g.ai_test_fresh = 0
@@ -145,12 +154,31 @@ check("8 重开 WARN 明示", (function()
   return false
 end)())
 vim.notify = orig_notify
+vim.fn.delete(failflag) -- 就地清，后续判据不带链失效噪音
 
--- 收尾（清 failflag + 链桩，不留假 sid 在用户 run 目录）
+-- 判据 9：❯ 输入框形态——裸调 :AI 走 vim.ui.input，prompt 是图标非
+-- "AI" 字样（用户裁决：模仿 :! 前导图标，不占命令行文本），文本直投 M.run
+local orig_input = vim.ui.input
+local cap_prompt
+vim.ui.input = function(opts, on_confirm)
+  cap_prompt = opts.prompt
+  on_confirm("cmd:let g:ai_input = 11")
+end
+vim.g.ai_input = 0
+set_result("cmd:let g:ai_input = 11")
+local orig_confirm = A.default_confirm
+A.default_confirm = yes -- 命令路径无 opts.confirm，走模块级缺省缝
+vim.api.nvim_cmd({ cmd = "AI" }, {})
+check("9 裸调开 ❯ 输入框（无 AI 字样）", cap_prompt ~= nil
+  and cap_prompt:find("AI", 1, true) == nil and cap_prompt:find("❯", 1, true) ~= nil)
+check("9 输入框文本直投执行", vim.wait(5000, function() return vim.g.ai_input == 11 end))
+A.default_confirm = orig_confirm
+vim.ui.input = orig_input
+
+-- 收尾（链桩不留假 sid 在用户 run 目录）
 vim.fn.delete(fake)
 vim.fn.delete(payload)
 vim.fn.delete(argvf)
 vim.fn.delete(pwdf)
-vim.fn.delete(failflag)
 A.reset()
 lib.finish()

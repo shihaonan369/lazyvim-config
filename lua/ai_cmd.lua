@@ -108,15 +108,17 @@ local function execute(kind, body)
   end
 end
 
--- opts.confirm(kind, body) -> boolean：审查钩子（测试注入点；缺省走
--- vim.fn.confirm 数字选择：Enter/1=执行，Esc/2=取消）；opts.fresh=true
+-- 缺省审查对话框（模块字段 = 测试缝，可整体替换）：confirm 数字选择，
+-- Enter/1=执行，Esc/2=取消
+function M.default_confirm(kind, body)
+  return vim.fn.confirm(("AI 生成 (%s):\n%s\n\n执行？"):format(kind, body), "执行\n取消") == 1
+end
+
+-- opts.confirm(kind, body) -> boolean：单次审查覆盖；opts.fresh=true
 -- 重置链再问（:AI!）；opts._retried 内部自愈标记防循环
 function M.run(query, opts)
   opts = opts or {}
-  local confirm = opts.confirm
-    or function(kind, body)
-      return vim.fn.confirm(("AI 生成 (%s):\n%s\n\n执行？"):format(kind, body), "执行\n取消") == 1
-    end
+  local confirm = opts.confirm or M.default_confirm
   vim.api.nvim_echo({ { "AI ▸ 生成中…", "Comment" } }, false, {})
   local cwd = vim.fn.stdpath("run") .. "/ai-cmd"
   vim.fn.mkdir(cwd, "p")
@@ -163,12 +165,27 @@ end
 
 function M.setup()
   vim.api.nvim_create_user_command("AI", function(o)
-    local q = vim.trim(o.args or "")
-    if q ~= "" then M.run(q, { fresh = o.bang }) end
-  end, { nargs = "+", bang = true, desc = "自然语言 → nvim 操作（claude -p 续链，先审后执；! 重置链）" })
-  -- nvim 用户命令强制大写开头，:ai 小写用带守卫的 cmdline 缩写补形：
-  -- 仅命令行类型为 : 且当前整行恰为 "ai" 时展开（参数位置/搜索串不误伤）
-  vim.cmd([[cnoreabbrev <expr> ai getcmdtype() ==# ':' && getcmdline() ==# 'ai' ? 'AI' : 'ai']])
+    local args = vim.trim(o.args or "")
+    if args == "" then
+      -- ❯ 输入框（用户裁决 2026-10-21）：模仿 :! 的形态——前导图标把 :
+      -- 本身换掉，"AI" 字样不占命令行文本；❯ 与 claude TUI 输入框同形
+      -- （对 claude 说话的框同貌）。真·内联变形（setcmdprompt 吞字 +
+      -- <CR> 拦截状态机）能做但脆弱，按红线否。带参调用仍一步直达
+      vim.ui.input({ prompt = "❯ " }, function(q)
+        if q and q:find("%S") then M.run(vim.trim(q), { fresh = o.bang }) end
+      end)
+    else
+      M.run(args, { fresh = o.bang })
+    end
+  end, { nargs = "*", bang = true, desc = "自然语言 → nvim 操作（❯ 输入框，claude -p 续链，先审后执；! 重置链）" })
+  -- 大小写不拘入口（用户裁决 2026-10-21）：a/A/ai/Ai/aI 经带守卫 cmdline
+  -- 缩写归一到 :AI（:AI 本体无需缩写）。PTY 实测缩写在空格与裸 CR 下都
+  -- 展开（headless feedkeys 是假阴，勿信）；:args 等以 a 开头的命令安全
+  -- ——缩写只在非词字符跟上时触发，词内续打不炸。:append 让位（用户拍板）
+  for _, tok in ipairs({ "a", "A", "ai", "Ai", "aI" }) do
+    vim.cmd(("cnoreabbrev <expr> %s getcmdtype() ==# ':' && getcmdline() ==# '%s' ? 'AI' : '%s'")
+      :format(tok, tok, tok))
+  end
 end
 
 return M
