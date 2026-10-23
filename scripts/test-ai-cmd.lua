@@ -145,7 +145,7 @@ check(
   vim.wait(5000, function()
     local c = 0
     for _, n in ipairs(notes) do
-      if n:find("无法解析", 1, true) then
+      if n:find("Unparseable", 1, true) then
         c = c + 1
       end
     end
@@ -212,7 +212,7 @@ check(
   "8 重开播报明示",
   (function()
     for _, n in ipairs(notes) do
-      if n:find("重开新链", 1, true) then
+      if n:find("reopened a fresh chain", 1, true) then
         return true
       end
     end
@@ -235,7 +235,7 @@ check(
   "9 裸调 → 提示缺少内容",
   (function()
     for _, n in ipairs(notes9) do
-      if n:find("缺少内容", 1, true) then
+      if n:find("Missing query", 1, true) then
         return true
       end
     end
@@ -273,7 +273,7 @@ check(
   vim.wait(3000, function()
     local c = 0
     for _, n in ipairs(notes) do
-      if n:find("翻译超时", 1, true) then
+      if n:find("Timeout", 1, true) then
         c = c + 1
       end
     end
@@ -285,10 +285,10 @@ vim.wait(500, function()
 end) -- 沉降窗：若有自动重试，第二报文必落此窗
 local healed11, c11 = false, 0
 for _, n in ipairs(notes) do
-  if n:find("重开新链", 1, true) then
+  if n:find("reopened a fresh chain", 1, true) then
     healed11 = true
   end
-  if n:find("翻译超时", 1, true) then
+  if n:find("Timeout", 1, true) then
     c11 = c11 + 1
   end
 end

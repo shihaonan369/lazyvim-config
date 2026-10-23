@@ -73,7 +73,10 @@ end
 -- 定时 setcmdline 刷进度；完成原地变审查负载；超时/报错落注释行留框待
 -- 收；等待期提前离开（Esc/C-c）=取消（SIGKILL）——离开即取消，拿到负载
 -- 的唯一路径是守着输入框到它变身。播报走 M.report 缝；无 UI（headless）
--- UI 桩整体跳过
+-- UI 桩整体跳过。界面文案英文、进度行不回显原请求（用户裁决 2026-10-23
+-- 三修）；等待期边框流动彩虹——轮换 noice cmdline_popup 的高亮组
+-- NoiceCmdlinePopupBorder/Title（组专属 cmdline 全局 :hi 不外溢），快照
+-- 原定义收场回放还原；终态转红
 
 local function build_prompt(query)
   local bufname = vim.api.nvim_buf_get_name(0)
@@ -140,33 +143,95 @@ local function execute(kind, body)
     end
   end
   if not ok then
-    vim.api.nvim_echo({ { "AI ▸ 执行失败: " .. tostring(err), "ErrorMsg" } }, false, {})
+    vim.api.nvim_echo({ { "AI ▸ Execute failed: " .. tostring(err), "ErrorMsg" } }, false, {})
   end
 end
 
 -- 输入框会话（模块级单飞：nvim 单线程+离开即取消，天然无并发；gen 代
 -- 计数防旧会话回调窜新会话）
-local S = { gen = 0, phase = "idle", open = false, timer = nil, au = {}, job = nil }
+local S = { gen = 0, phase = "idle", timer = nil, au = {}, job = nil, hl = nil }
 
 local function ui_present()
   return #vim.api.nvim_list_uis() > 0
 end
 
-local function ui_teardown() -- 停 tick、撤事件桩（cmdline 内容留给用户收）
+-- 彩虹边框（2026-10-23 三修）：轮换 noice cmdline_popup 专属高亮组——
+-- 全局 :hi 只影响 cmdline 边框/标题不外溢；流动 = 复用进度 tick 逐帧推
+-- 进；进框前快照原定义（主题可能自定义），收场回放还原
+local RAINBOW = {
+  "#ff5f6d",
+  "#ff7b54",
+  "#ffa751",
+  "#ffd56b",
+  "#b8e994",
+  "#38ef7d",
+  "#18dcff",
+  "#7d5fff",
+  "#c56cf0",
+  "#ff6b81",
+}
+local BORDER_HL = { "NoiceCmdlinePopupBorder", "NoiceCmdlinePopupTitle" }
+
+local function hl_capture(name)
+  return (vim.fn.execute("hi " .. name):gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function hl_restore(name, def)
+  local linked = def and def:match("links to%s+(%S+)$")
+  if linked then
+    pcall(vim.cmd, "hi! link " .. name .. " " .. linked)
+  else
+    local attrs = def and def:match("xxx%s*(.+)$")
+    pcall(vim.cmd, "hi clear " .. name)
+    if attrs and attrs ~= "cleared" then
+      pcall(vim.cmd, "hi " .. name .. " " .. attrs)
+    end
+  end
+end
+
+local function border_tint(color)
+  for _, name in ipairs(BORDER_HL) do
+    pcall(vim.cmd, "hi " .. name .. " guifg=" .. color)
+  end
+end
+
+local function border_restore()
+  if not S.hl then
+    return
+  end
+  for _, name in ipairs(BORDER_HL) do
+    hl_restore(name, S.hl[name])
+  end
+  S.hl = nil
+end
+
+local function ui_teardown() -- 停进度 tick（边框/事件桩留给收场或终态接管）
   if S.timer then
     vim.fn.timer_stop(S.timer)
     S.timer = nil
   end
+end
+
+local function ui_cleanup() -- 收场：停 tick、还原图谱、撤事件桩
+  ui_teardown()
+  border_restore()
   for _, id in ipairs(S.au) do
     pcall(vim.api.nvim_del_autocmd, id)
   end
   S.au = {}
+  S.phase = "idle"
 end
 
--- 等待期 cmdline 文本：":" 打头=Ex 注释行，误回车=no-op；"|" 换 ¦ 防
--- 误回车吃到注释后的追加命令
-local function spin_text(s, el, query)
-  return ':"' .. s .. string.format(" AI ▸ 翻译中… %4.1fs（ESC 取消） ", el) .. query:gsub("|", "¦")
+-- 输入框开合不缓存事件标志（S.open 曾因 Enter/Leave 时序丢帧致播报误落
+-- echo 分支，PTY 间歇复现）——一律现查真实状态
+local function cmdline_open()
+  return vim.fn.mode(1):sub(1, 1) == "c"
+end
+
+-- 等待期 cmdline 文本：":" 打头=Ex 注释行，误回车=no-op（英文文案、不
+-- 回显原请求——用户裁决 2026-10-23 三修）
+local function spin_text(s, el)
+  return ':"' .. s .. string.format(" AI ▸ Translating… %4.1fs (ESC to cancel)", el)
 end
 
 -- 缺省审查形态（模块字段 = 测试缝，可整体替换）：**复用 ':' 本尊**（用户
@@ -176,7 +241,7 @@ end
 -- 底）退 feedkeys 预填
 function M.default_review(kind, body, on_ok)
   local line = M.review_line(kind, body)
-  if S.open then
+  if cmdline_open() then
     pcall(vim.fn.setcmdline, line)
   else
     vim.fn.feedkeys(":" .. line, "n")
@@ -198,9 +263,31 @@ end
 -- 入框不在（无 UI/已离开/headless）退 cmdline echo。测试覆写收集文本，
 -- 判据只断言文本本身
 function M.report(text, terminal)
-  if ui_present() and S.open then
-    local one = text:gsub("\n", " / "):gsub("|", "¦")
-    pcall(vim.fn.setcmdline, ':"' .. one .. (terminal and "（回车/Esc 关闭）" or ""))
+  local one = text:gsub("\n", " / "):gsub("|", "¦")
+  local line = ':"' .. one .. (terminal and " (ENTER/ESC to close)" or "")
+  if not ui_present() then
+    vim.api.nvim_echo({ { text, terminal and "ErrorMsg" or "WarningMsg" } }, false, {})
+    return
+  end
+  local function paint_red() -- 终态转红（timer 上下文 + 异文驱动）：边框上色
+    border_tint("#ff4d4f") -- 靠重绘，重绘靠「内容变化」——setcmdline 同文本
+    pcall(vim.fn.setcmdline, line) -- 是 no-op（PTY 实证：spinner 逐帧异文彩
+    pcall(vim.cmd, "redraw") -- 虹每帧上色，同文补 set 红边框死不上屏）
+  end
+  if cmdline_open() then
+    if terminal then
+      if S.hl then -- S.hl 已收（迟到的终态）则跳过，防红框漏到下一会话
+        vim.defer_fn(paint_red, 10)
+      end
+    else
+      pcall(vim.fn.setcmdline, line) -- 瞬态：立即上屏，tick 随即覆盖
+    end
+  elseif terminal and S.phase == "done" then
+    -- 框被超时杀连坐关闭（nvim 级现象，PTY 实证：timeout 瞬间 mode 已翻
+    -- n 且无 Leave/Cancel——最小探针洗清 vim.system，死因在全量配置联动
+    -- 未究）：重开输入框落终态——空开框、defer 异文上屏带红边框
+    vim.fn.feedkeys(":", "n")
+    vim.defer_fn(paint_red, 30)
   else
     vim.api.nvim_echo({ { text, terminal and "ErrorMsg" or "WarningMsg" } }, false, {})
   end
@@ -222,41 +309,42 @@ function M.run(query, opts)
 
   -- 输入框接管（2026-10-23 二修）：无 UI（headless）整段跳过=纯逻辑路径
   if ui_present() then
-    ui_teardown() -- 防御：清上一会话残留桩
-    if S.job then
-      pcall(function()
-        S.job:kill(9)
-      end)
+    if S.phase ~= "idle" then -- 防御：上一会话未收场
+      if S.job then
+        pcall(function()
+          S.job:kill(9)
+        end)
+      end
+      ui_cleanup()
     end
     S.phase = "waiting"
-    S.open = false
-    vim.fn.feedkeys(spin_text("⠋", 0, query), "n")
-    S.au[#S.au + 1] = vim.api.nvim_create_autocmd("CmdlineEnter", {
-      callback = function()
-        S.open = true
-      end,
-    })
+    S.hl = {}
+    for _, name in ipairs(BORDER_HL) do
+      S.hl[name] = hl_capture(name)
+    end
+    vim.fn.feedkeys(spin_text("⠋", 0), "n")
     S.au[#S.au + 1] = vim.api.nvim_create_autocmd("CmdlineLeave", {
       callback = function()
-        S.open = false
         if S.phase == "waiting" then -- 提前离开=取消
-          S.phase = "canceled"
-          ui_teardown()
           if S.job then
             pcall(function()
               S.job:kill(9)
             end)
           end
-          vim.api.nvim_echo({ { "AI ▸ 已取消", "Comment" } }, false, {})
+          ui_cleanup()
+          vim.api.nvim_echo({ { "AI ▸ Canceled", "Comment" } }, false, {})
+        else -- done 态收场（终态注释行的回车/Esc；审查负载的正常提交）
+          ui_cleanup()
         end
       end,
     })
     local spin = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
     local start, tick = vim.uv.now(), 0
     S.timer = vim.fn.timer_start(80, function()
-      if S.phase == "waiting" and S.open then
-        tick = tick + 1
-        pcall(vim.fn.setcmdline, spin_text(spin[tick % #spin + 1], (vim.uv.now() - start) / 1000, query))
+      tick = tick + 1
+      border_tint(RAINBOW[tick % #RAINBOW + 1]) -- 彩虹流动与进度同拍
+      if S.phase == "waiting" and cmdline_open() then
+        pcall(vim.fn.setcmdline, spin_text(spin[tick % #spin + 1], (vim.uv.now() - start) / 1000))
       end
     end, { ["repeat"] = -1 })
   end
@@ -289,15 +377,11 @@ function M.run(query, opts)
         -- vim.system 超时杀实测（0.12.6 探针）无 timeout 字段，呈
         -- code=124+SIGTERM(15)——判超时须认这个形状，res.timeout 留作前向兼容
         if res.timeout or (res.code == 124 and res.signal == 15) then
-          -- 超时≠链失效：不动链不自动重试，报明可直接重试
+          -- 超时≠链失效：不动链不自动重试，报明可直接重试。文案须短——
+          -- noice cmdline 保尾截头（光标在尾），头部超宽会被截掉
           S.phase = "done"
           ui_teardown()
-          M.report(
-            "AI ▸ 翻译超时（"
-              .. timeout_ms
-              .. "ms）——链未动可直接重试；偏慢可设 vim.g.ai_cmd_timeout",
-            true
-          )
+          M.report("AI ▸ Timeout (" .. timeout_ms .. "ms) — retry freely", true)
           return
         end
         if res.code ~= 0 then
@@ -305,38 +389,39 @@ function M.run(query, opts)
             M.reset()
             sid = nil
             retried = true
-            M.report("AI ▸ 续链失效，已重开新链", false) -- 瞬态：tick 随即覆盖
+            M.report("AI ▸ Chain broken — reopened a fresh chain", false) -- 瞬态：tick 随即覆盖
             attempt() -- phase 保持 waiting，进度接着走
             return
           end
           S.phase = "done"
           ui_teardown()
           M.report(
-            "AI ▸ claude 调用失败 (code=" .. tostring(res.code) .. "): " .. (res.stderr or ""):sub(1, 200),
+            "AI ▸ claude failed: " .. (res.stderr or ""):sub(1, 150) .. " (code=" .. tostring(res.code) .. ")",
             true
           )
           return
         end
         S.phase = "done"
-        ui_teardown() -- 停 tick：输入框内容交给审查接管
+        ui_teardown() -- 停 tick；cleanup 押后——审查要现查 cmdline 开合判定 setcmdline/feedkeys
         local ok, obj = pcall(vim.json.decode, res.stdout or "")
         if not ok or type(obj) ~= "table" or not obj.session_id then
-          M.report("AI ▸ 输出非 JSON（不执行）:\n" .. (res.stdout or ""):sub(1, 400), true)
+          M.report("AI ▸ Output is not JSON (not executed):\n" .. (res.stdout or ""):sub(1, 400), true)
           return
         end
         chain_save(obj.session_id)
         local kind, body = parse(obj.result or "")
         if not kind then
-          M.report("AI ▸ 无法解析（不执行）:\n" .. (obj.result or ""):sub(1, 400), true)
+          M.report("AI ▸ Unparseable result (not executed):\n" .. (obj.result or ""):sub(1, 400), true)
           return
         end
         review(kind, body, function(edited)
           if edited and edited:find("%S") then
             execute(kind, vim.trim(edited))
           else
-            vim.api.nvim_echo({ { "AI ▸ 已取消", "Comment" } }, false, {})
+            vim.api.nvim_echo({ { "AI ▸ Canceled", "Comment" } }, false, {})
           end
         end)
+        ui_cleanup() -- 收在审查落定之后：图谱还原、撤桩
       end)
     end)
   end
@@ -347,7 +432,7 @@ function M.setup()
   vim.api.nvim_create_user_command("AI", function(o)
     local args = vim.trim(o.args or "")
     if args == "" then
-      M.report("AI: 缺少内容——用法 :AI <自然语言>（如 :AI 在新tab中打开mysql）", true)
+      M.report("AI ▸ Missing query — usage: :AI <natural language> (e.g. :AI open mysql in a new tab)", true)
       return
     end
     M.run(args, { fresh = o.bang })
