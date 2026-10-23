@@ -73,9 +73,9 @@ end
 -- 定时 setcmdline 刷进度；完成原地变审查负载；超时/报错落注释行留框待
 -- 收；等待期提前离开（Esc/C-c）=取消（SIGKILL）——离开即取消，拿到负载
 -- 的唯一路径是守着输入框到它变身。播报走 M.report 缝；无 UI（headless）
--- UI 桩整体跳过。界面文案英文、进度行不回显原请求也不带 AI 前缀（用户
--- 裁决 2026-10-23 三修+六修：边框颜色即模式隐喻，框内不重复）；边框三态
--- ——输入 :AI… 静态彩虹、执行中流动、成功/离开回主题色（六修）
+-- UI 桩整体跳过。界面文案英文、进度行不回显原请求（用户裁决 2026-10-23
+-- 三修）；等待期整框多色彩虹+颜色流动（2026-10-23 四修：多色非整框同
+-- 色）；终态 8 段齐红
 
 local function build_prompt(query)
   local bufname = vim.api.nvim_buf_get_name(0)
@@ -148,20 +148,19 @@ end
 
 -- 输入框会话（模块级单飞：nvim 单线程+离开即取消，天然无并发；gen 代
 -- 计数防旧会话回调窜新会话）
-local S = { gen = 0, phase = "idle", timer = nil, au = {}, job = nil, left_at = nil, mode = false, ov = nil }
+local S = { gen = 0, phase = "idle", timer = nil, au = {}, job = nil, left_at = nil }
 
 local function ui_present()
   return #vim.api.nvim_list_uis() > 0
 end
 
--- 彩虹边框（2026-10-23 六修终极形态：自绘覆盖窗——用户裁决"盖住原来的
--- 框就行"。此前三条路全否：① 对文字窗 set_config=nui border 本是独立窗，
--- 双框；② 改 noice view 配置=popup 首建后缓存击穿；③ 在 nui border
--- buffer 上打 extmark 染色=noice 内部重绘时机不可控。覆盖窗 100% 自有：
--- 几何=text 窗外扩一圈，内衬 noice 弹窗同底色（winblend 弃——TUI 下连
--- 前景一起混合，extmark 颜色不落地），内容/颜色/生命周期全自有，零竞
--- 态。三态（用户裁决六修：边框颜色即模式隐喻）：输入 :AI… 静态彩虹，
--- 执行中按 tick 流动，成功/离开销毁覆盖窗回主题框；框内文案不带 AI 前缀）
+-- 彩虹边框（2026-10-23 四修多色流动；五修终极形态：nui 的 border 本就是
+-- 独立窗口，动窗体配置会双框、改 noice 配置被缓存击穿——最终直接在 nui
+-- border 窗口的 buffer 上打自有命名空间的 extmark：边框字符是 nui 画的，
+-- 我们只做原地染色，逐字符渐变、按 k 错位流动，窗体零手术=无双框。组
+-- AiRainbow1..8 静态持调色板，收场清 extmark+清组；终态不染色（红圈
+-- 试过 per-char/整块两条路都被 noice 异步重渲染清掉，弃——终态=边框回
+-- 主题色、消息文本留框）
 local RAINBOW = {
   "#ff5f6d",
   "#ffa751",
@@ -192,102 +191,71 @@ local function rb_text_win() -- noice cmdline 文字窗：zindex=200（views.lua
   end
 end
 
-local function rb_overlay() -- 覆盖窗：text 窗外扩一圈；已存在则跟随重申几何
+local function rb_border_win(tw) -- nui border 窗：buffer 首行以左上角字符开头
+  -- 的浮窗（几何判据试过：nui border 窗尺寸并非精确 +2，没命中）
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if win ~= tw then
+      local ok, cfg = pcall(vim.api.nvim_win_get_config, win)
+      if ok and cfg.relative ~= "" then
+        local ok2, l1 = pcall(vim.api.nvim_buf_get_lines, vim.api.nvim_win_get_buf(win), 0, 1, false)
+        if ok2 and (l1[1] or ""):match("^[╭┌╔]") then
+          return win
+        end
+      end
+    end
+  end
+end
+
+local function rb_targets() -- 文字窗+border 窗 {buf,w,h}；缺一即 nil
   local tw = rb_text_win()
   if not tw then
-    pcall(vim.fn.writefile, { "ov: no text win" }, "/tmp/dbg-ov.log", "a")
     return nil
   end
-  local tc = vim.api.nvim_win_get_config(tw)
-  local w, h = tc.width + 2, tc.height + 2
-  if S.ov and vim.api.nvim_win_is_valid(S.ov.win) then
-    local cfg = vim.api.nvim_win_get_config(S.ov.win)
-    cfg.row, cfg.col, cfg.width, cfg.height = tc.row - 1, tc.col - 1, w, h
-    pcall(vim.api.nvim_win_set_config, S.ov.win, cfg)
-    S.ov.w, S.ov.h = w, h
-    return S.ov
-  end
-  local buf = vim.api.nvim_create_buf(false, true)
-  local ch = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
-  local lines = { ch[1] .. string.rep(ch[2], w - 2) .. ch[3] }
-  for _ = 2, h - 1 do
-    lines[#lines + 1] = ch[8] .. string.rep(" ", w - 2) .. ch[4]
-  end
-  lines[h] = ch[7] .. string.rep(ch[6], w - 2) .. ch[5]
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  local ok, win = pcall(vim.api.nvim_open_win, buf, false, {
-    relative = "editor",
-    anchor = tc.anchor or "NW",
-    row = tc.row - 1,
-    col = tc.col - 1,
-    width = w,
-    height = h,
-    style = "minimal",
-    focusable = false,
-    zindex = (tc.zindex or 200) + 1,
-  })
-  pcall(vim.fn.writefile, {
-    ("ov: tw=%s tc=%sx%s row=%s col=%s open=%s %s"):format(
-      tw,
-      tc.width,
-      tc.height,
-      tostring(tc.row),
-      tostring(tc.col),
-      tostring(ok),
-      tostring(win)
-    ),
-  }, "/tmp/dbg-ov.log", "a")
-  if not ok then
+  local bwin = rb_border_win(tw)
+  if not bwin then
     return nil
   end
-  -- 内衬 noice 弹窗同底色（无 winblend：TUI 下 winblend 连前景一起混合，
-  -- extmark 颜色不落地——PTY 实证）；内圈同色即视觉无缝
-  vim.wo[win].winhighlight = "Normal:NoiceCmdlinePopup,NormalFloat:NoiceCmdlinePopup"
-  S.ov = { win = win, buf = buf, w = w, h = h }
-  return S.ov
+  return {
+    buf = vim.api.nvim_win_get_buf(bwin),
+    w = vim.api.nvim_win_get_width(bwin),
+    h = vim.api.nvim_win_get_height(bwin),
+  }
 end
 
 local function rb_paint(k) -- 沿周长逐字符渐变：pos 偏移 k 取组 → 颜色流动
-  local ov = rb_overlay()
-  if not ov or ov.w < 2 or ov.h < 2 then
+  local t = rb_targets()
+  if not t or t.w < 2 or t.h < 2 then
     return
   end
-  pcall(vim.api.nvim_buf_clear_namespace, ov.buf, NS, 0, -1)
+  pcall(vim.api.nvim_buf_clear_namespace, t.buf, NS, 0, -1)
   local function mark(line, col, g)
-    pcall(vim.api.nvim_buf_set_extmark, ov.buf, NS, line, col, {
+    pcall(vim.api.nvim_buf_set_extmark, t.buf, NS, line, col, {
       end_line = line,
       end_col = col + 1,
       hl_group = "AiRainbow" .. g,
       priority = 65534,
     })
   end
-  for col = 0, ov.w - 1 do -- 上 L→R
+  for col = 0, t.w - 1 do -- 上 L→R
     mark(0, col, (k + col) % 8 + 1)
   end
-  for row = 1, ov.h - 2 do -- 右 T→B
-    mark(row, ov.w - 1, (k + ov.w - 1 + row) % 8 + 1)
+  for row = 1, t.h - 2 do -- 右 T→B
+    mark(row, t.w - 1, (k + t.w - 1 + row) % 8 + 1)
   end
-  for col = 0, ov.w - 1 do -- 下 L→R（续 pos）
-    mark(ov.h - 1, col, (k + ov.w + ov.h - 1 + col) % 8 + 1)
+  for col = 0, t.w - 1 do -- 下 L→R（续 pos）
+    mark(t.h - 1, col, (k + t.w + t.h - 1 + col) % 8 + 1)
   end
-  for row = 1, ov.h - 2 do -- 左 T→B（续 pos）
-    mark(row, 0, (k + 2 * ov.w + ov.h - 2 + row) % 8 + 1)
+  for row = 1, t.h - 2 do -- 左 T→B（续 pos）
+    mark(row, 0, (k + 2 * t.w + t.h - 2 + row) % 8 + 1)
   end
-  vim.cmd("redraw") -- 自绘窗内容变化不触发命令行重绘，显式刷
 end
 
-local function rb_reset() -- 收场：销毁覆盖窗（nui 原框露出=初始颜色）、清组
-  if S.ov then
-    if vim.api.nvim_win_is_valid(S.ov.win) then
-      pcall(vim.api.nvim_win_close, S.ov.win, true)
-    end
-    if vim.api.nvim_buf_is_valid(S.ov.buf) then
-      pcall(vim.api.nvim_buf_delete, S.ov.buf, { force = true })
-    end
-    S.ov = nil
-  end
-  for i = 1, #RAINBOW do
-    pcall(vim.cmd, "hi clear AiRainbow" .. i)
+local function rb_reset() -- 收场：只清自有 extmark。组不清——hi clear 会
+  -- 在与 run()/观察者的时序竞争里把已定义的组清掉（extmark 无色，PTY 实
+  -- 证），组常驻定义无害（仅被我们的 extmark 引用）
+  local t = rb_targets()
+  if t then
+    pcall(vim.api.nvim_buf_clear_namespace, t.buf, NS, 0, -1)
   end
 end
 
@@ -315,9 +283,9 @@ local function cmdline_open()
 end
 
 -- 等待期 cmdline 文本：":" 打头=Ex 注释行，误回车=no-op（英文文案、不
--- 回显原请求、无 AI 前缀——边框颜色即模式隐喻，用户裁决 2026-10-23 六修）
+-- 回显原请求——用户裁决 2026-10-23 三修）
 local function spin_text(s, el)
-  return ':"' .. s .. string.format(" Translating… %4.1fs (ESC to cancel)", el)
+  return ':"' .. s .. string.format(" AI ▸ Translating… %4.1fs (ESC to cancel)", el)
 end
 
 -- 缺省审查形态（模块字段 = 测试缝，可整体替换）：**复用 ':' 本尊**（用户
@@ -350,12 +318,11 @@ end
 -- 判据只断言文本本身
 function M.report(text, terminal)
   local one = text:gsub("\n", " / "):gsub("|", "¦")
+  local line = ':"' .. one .. (terminal and " (ENTER/ESC to close)" or "")
   if not ui_present() then
     vim.api.nvim_echo({ { text, terminal and "ErrorMsg" or "WarningMsg" } }, false, {})
     return
   end
-  -- 落框文案剥 "AI ▸ " 前缀（边框颜色即模式隐喻，框内不再重复）
-  local line = ':"' .. one:gsub("^AI ▸ ", "") .. (terminal and " (ENTER/ESC to close)" or "")
   if cmdline_open() then
     pcall(vim.fn.setcmdline, line) -- 异文驱动重绘（PTY 实证）
   elseif terminal and S.phase == "done" then
@@ -393,7 +360,6 @@ function M.run(query, opts)
       ui_cleanup()
     end
     S.phase = "waiting"
-    S.mode = false -- 静态彩虹态交棒给执行流动
     rb_define()
     vim.fn.feedkeys(spin_text("⠋", 0), "n")
     S.au[#S.au + 1] = vim.api.nvim_create_autocmd("CmdlineLeave", {
@@ -465,7 +431,9 @@ function M.run(query, opts)
         -- vim.system 超时杀实测（0.12.6 探针）无 timeout 字段，呈
         -- code=124+SIGTERM(15)——判超时须认这个形状，res.timeout 留作前向兼容
         local function terminal_state(msg)
-          -- 终态统一出口：停 tick、销毁覆盖窗（边框回主题色）、消息留框
+          -- 终态统一出口：停 tick、边框回主题色、消息留框（红圈试过
+          -- per-char/整块两条路，extmark 都被 noice 的 schedule 异步行重写
+          -- 清掉——用户裁决简单实现，弃红圈只留文本）
           S.phase = "done"
           ui_teardown()
           rb_reset()
@@ -520,10 +488,6 @@ function M.run(query, opts)
 end
 
 function M.setup()
-  -- AI 模式边框隐喻（用户裁决 2026-10-23 六修）：输入 `:AI…` 即静态彩虹
-  -- （不流动），回车执行转流动（run 的 tick），成功/离开回主题色——边框
-  -- 颜色即模式指示。会话进行中（phase≠idle）由 run 的 tick 全权负责，
-  -- 本观察者让位
   vim.api.nvim_create_autocmd("CmdlineChanged", {
     callback = function()
       if S.phase ~= "idle" then
@@ -535,10 +499,14 @@ function M.setup()
           S.mode = true
           rb_define()
         end
-        rb_paint(0) -- 静态彩虹；逐键重涂对冲 noice 同拍重渲染
+        -- schedule 落染：本观察者注册早于 noice，同步染色会被 noice 随后
+        -- 的行重写清掉；排到其渲染之后即胜
+        vim.schedule(function()
+          rb_paint(0)
+        end)
       elseif S.mode then
         S.mode = false
-        rb_reset()
+        vim.schedule(rb_reset)
       end
     end,
   })
