@@ -74,9 +74,8 @@ end
 -- 收；等待期提前离开（Esc/C-c）=取消（SIGKILL）——离开即取消，拿到负载
 -- 的唯一路径是守着输入框到它变身。播报走 M.report 缝；无 UI（headless）
 -- UI 桩整体跳过。界面文案英文、进度行不回显原请求（用户裁决 2026-10-23
--- 三修）；等待期边框流动彩虹——轮换 noice cmdline_popup 的高亮组
--- NoiceCmdlinePopupBorder/Title（组专属 cmdline 全局 :hi 不外溢），快照
--- 原定义收场回放还原；终态转红
+-- 三修）；等待期整框多色彩虹+颜色流动（2026-10-23 四修：多色非整框同
+-- 色）；终态 8 段齐红
 
 local function build_prompt(query)
   local bufname = vim.api.nvim_buf_get_name(0)
@@ -149,60 +148,73 @@ end
 
 -- 输入框会话（模块级单飞：nvim 单线程+离开即取消，天然无并发；gen 代
 -- 计数防旧会话回调窜新会话）
-local S = { gen = 0, phase = "idle", timer = nil, au = {}, job = nil, hl = nil }
+local S = { gen = 0, phase = "idle", timer = nil, au = {}, job = nil }
 
 local function ui_present()
   return #vim.api.nvim_list_uis() > 0
 end
 
--- 彩虹边框（2026-10-23 三修）：轮换 noice cmdline_popup 专属高亮组——
--- 全局 :hi 只影响 cmdline 边框/标题不外溢；流动 = 复用进度 tick 逐帧推
--- 进；进框前快照原定义（主题可能自定义），收场回放还原
+-- 彩虹边框（2026-10-23 四修：整框多色+颜色流动，单色轮换被否）：浮窗
+-- border 原生支持 8 段独立高亮——把 noice cmdline_popup 的 border 覆写为
+-- 8 段元组（顺时针自左上：圆角字符，各段挂专属组 AiRainbow1..8），每拍
+-- 轮换 8 组取色 → 颜色沿边框错位流动。noice 重渲染（CmdlineChanged）可
+-- 能重置 border，故 setcmdline 后每拍重申 set_config。终态 8 段齐红；
+-- 收场清组、border 拨回 rounded
 local RAINBOW = {
   "#ff5f6d",
-  "#ff7b54",
   "#ffa751",
   "#ffd56b",
-  "#b8e994",
   "#38ef7d",
   "#18dcff",
   "#7d5fff",
   "#c56cf0",
   "#ff6b81",
 }
-local BORDER_HL = { "NoiceCmdlinePopupBorder", "NoiceCmdlinePopupTitle" }
+local RB_CHARS = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
 
-local function hl_capture(name)
-  return (vim.fn.execute("hi " .. name):gsub("^%s+", ""):gsub("%s+$", ""))
-end
-
-local function hl_restore(name, def)
-  local linked = def and def:match("links to%s+(%S+)$")
-  if linked then
-    pcall(vim.cmd, "hi! link " .. name .. " " .. linked)
-  else
-    local attrs = def and def:match("xxx%s*(.+)$")
-    pcall(vim.cmd, "hi clear " .. name)
-    if attrs and attrs ~= "cleared" then
-      pcall(vim.cmd, "hi " .. name .. " " .. attrs)
+local function cmdline_win() -- noice cmdline_popup：zindex=200（views.lua 默认）
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local cfg = vim.api.nvim_win_get_config(win)
+    if cfg.relative ~= "" and cfg.zindex == 200 then
+      return win
     end
   end
 end
 
-local function border_tint(color)
-  for _, name in ipairs(BORDER_HL) do
-    pcall(vim.cmd, "hi " .. name .. " guifg=" .. color)
+local function rb_assert() -- 重申 8 段 border（对冲 noice 重渲染重置）
+  local win = cmdline_win()
+  if not win then
+    return
+  end
+  local t = {}
+  for i = 1, 8 do
+    t[i] = { RB_CHARS[i], "AiRainbow" .. i }
+  end
+  local cfg = vim.api.nvim_win_get_config(win)
+  cfg.border = t
+  pcall(vim.api.nvim_win_set_config, win, cfg)
+end
+
+local function rb_rotate(k) -- 第 k 拍：段 i 染调色板第 (k+i-1)%8+1 色 → 流动
+  for i = 1, 8 do
+    pcall(vim.cmd, ("hi AiRainbow%d guifg=%s"):format(i, RAINBOW[(k + i - 1) % 8 + 1]))
   end
 end
 
-local function border_restore()
-  if not S.hl then
-    return
+local function rb_red() -- 终态：8 段齐红
+  for i = 1, 8 do
+    pcall(vim.cmd, "hi AiRainbow" .. i .. " guifg=#ff4d4f")
   end
-  for _, name in ipairs(BORDER_HL) do
-    hl_restore(name, S.hl[name])
+end
+
+local function rb_reset() -- 收场：清组、border 拨回 noice 默认圆角
+  for i = 1, 8 do
+    pcall(vim.cmd, "hi clear AiRainbow" .. i)
   end
-  S.hl = nil
+  local win = cmdline_win()
+  if win then
+    pcall(vim.api.nvim_win_set_config, win, { border = "rounded" })
+  end
 end
 
 local function ui_teardown() -- 停进度 tick（边框/事件桩留给收场或终态接管）
@@ -214,7 +226,7 @@ end
 
 local function ui_cleanup() -- 收场：停 tick、还原图谱、撤事件桩
   ui_teardown()
-  border_restore()
+  rb_reset()
   for _, id in ipairs(S.au) do
     pcall(vim.api.nvim_del_autocmd, id)
   end
@@ -269,16 +281,19 @@ function M.report(text, terminal)
     vim.api.nvim_echo({ { text, terminal and "ErrorMsg" or "WarningMsg" } }, false, {})
     return
   end
-  local function paint_red() -- 终态转红（timer 上下文 + 异文驱动）：边框上色
-    border_tint("#ff4d4f") -- 靠重绘，重绘靠「内容变化」——setcmdline 同文本
-    pcall(vim.fn.setcmdline, line) -- 是 no-op（PTY 实证：spinner 逐帧异文彩
-    pcall(vim.cmd, "redraw") -- 虹每帧上色，同文补 set 红边框死不上屏）
+  local function paint_red() -- 终态 8 段齐红（timer 上下文 + 异文驱动）：重
+    rb_red() -- 绘靠「内容变化」——setcmdline 同文本是 no-op（PTY 实证：同
+    pcall(vim.fn.setcmdline, line) -- 文补 set 红边框死不上屏）；重申 border
+    rb_assert() -- 对冲 noice 重渲染重置，再整体重绘
+    pcall(vim.cmd, "redraw")
   end
   if cmdline_open() then
     if terminal then
-      if S.hl then -- S.hl 已收（迟到的终态）则跳过，防红框漏到下一会话
-        vim.defer_fn(paint_red, 10)
-      end
+      vim.defer_fn(function() -- phase 守卫：迟到的终态不漏进下一会话
+        if S.phase == "done" then
+          paint_red()
+        end
+      end, 10)
     else
       pcall(vim.fn.setcmdline, line) -- 瞬态：立即上屏，tick 随即覆盖
     end
@@ -318,10 +333,6 @@ function M.run(query, opts)
       ui_cleanup()
     end
     S.phase = "waiting"
-    S.hl = {}
-    for _, name in ipairs(BORDER_HL) do
-      S.hl[name] = hl_capture(name)
-    end
     vim.fn.feedkeys(spin_text("⠋", 0), "n")
     S.au[#S.au + 1] = vim.api.nvim_create_autocmd("CmdlineLeave", {
       callback = function()
@@ -342,9 +353,10 @@ function M.run(query, opts)
     local start, tick = vim.uv.now(), 0
     S.timer = vim.fn.timer_start(80, function()
       tick = tick + 1
-      border_tint(RAINBOW[tick % #RAINBOW + 1]) -- 彩虹流动与进度同拍
       if S.phase == "waiting" and cmdline_open() then
+        rb_rotate(tick) -- 8 段错位取色=流动，与进度同拍
         pcall(vim.fn.setcmdline, spin_text(spin[tick % #spin + 1], (vim.uv.now() - start) / 1000))
+        rb_assert() -- noice 重渲染可能重置 border，setcmdline 后重申
       end
     end, { ["repeat"] = -1 })
   end
