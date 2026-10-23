@@ -148,18 +148,19 @@ end
 
 -- 输入框会话（模块级单飞：nvim 单线程+离开即取消，天然无并发；gen 代
 -- 计数防旧会话回调窜新会话）
-local S = { gen = 0, phase = "idle", timer = nil, au = {}, job = nil }
+local S = { gen = 0, phase = "idle", timer = nil, au = {}, job = nil, left_at = nil }
 
 local function ui_present()
   return #vim.api.nvim_list_uis() > 0
 end
 
--- 彩虹边框（2026-10-23 四修：整框多色+颜色流动，单色轮换被否）：浮窗
--- border 原生支持 8 段独立高亮——把 noice cmdline_popup 的 border 覆写为
--- 8 段元组（顺时针自左上：圆角字符，各段挂专属组 AiRainbow1..8），每拍
--- 轮换 8 组取色 → 颜色沿边框错位流动。noice 重渲染（CmdlineChanged）可
--- 能重置 border，故 setcmdline 后每拍重申 set_config。终态 8 段齐红；
--- 收场清组、border 拨回 rounded
+-- 彩虹边框（2026-10-23 四修多色流动；五修终极形态：nui 的 border 本就是
+-- 独立窗口，动窗体配置会双框、改 noice 配置被缓存击穿——最终直接在 nui
+-- border 窗口的 buffer 上打自有命名空间的 extmark：边框字符是 nui 画的，
+-- 我们只做原地染色，逐字符渐变、按 k 错位流动，窗体零手术=无双框。组
+-- AiRainbow1..8 静态持调色板，收场清 extmark+清组；终态不染色（红圈
+-- 试过 per-char/整块两条路都被 noice 异步重渲染清掉，弃——终态=边框回
+-- 主题色、消息文本留框）
 local RAINBOW = {
   "#ff5f6d",
   "#ffa751",
@@ -170,50 +171,92 @@ local RAINBOW = {
   "#c56cf0",
   "#ff6b81",
 }
-local RB_CHARS = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
+local NS = vim.api.nvim_create_namespace("ai_cmd_rainbow")
 
-local function cmdline_win() -- noice cmdline_popup：zindex=200（views.lua 默认）
+local function rb_define() -- 组静态持色（流动靠 extmark 错位，不靠改组）
+  for i, c in ipairs(RAINBOW) do
+    pcall(vim.cmd, ("hi AiRainbow%d guifg=%s"):format(i, c))
+  end
+end
+
+local function rb_text_win() -- noice cmdline 文字窗：zindex=200（views.lua 默认）
   for _, win in ipairs(vim.api.nvim_list_wins()) do
-    local cfg = vim.api.nvim_win_get_config(win)
-    if cfg.relative ~= "" and cfg.zindex == 200 then
-      return win
+    local ok, cfg = pcall(vim.api.nvim_win_get_config, win)
+    if ok and cfg.relative ~= "" and cfg.zindex == 200 then
+      local ok2, l1 = pcall(vim.api.nvim_buf_get_lines, vim.api.nvim_win_get_buf(win), 0, 1, false)
+      if ok2 and not (l1[1] or ""):match("^[╭┌╔]") then
+        return win
+      end
     end
   end
 end
 
-local function rb_assert() -- 重申 8 段 border（对冲 noice 重渲染重置）
-  local win = cmdline_win()
-  if not win then
+local function rb_border_win(tw) -- nui border 窗：buffer 首行以左上角字符开头
+  -- 的浮窗（几何判据试过：nui border 窗尺寸并非精确 +2，没命中）
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if win ~= tw then
+      local ok, cfg = pcall(vim.api.nvim_win_get_config, win)
+      if ok and cfg.relative ~= "" then
+        local ok2, l1 = pcall(vim.api.nvim_buf_get_lines, vim.api.nvim_win_get_buf(win), 0, 1, false)
+        if ok2 and (l1[1] or ""):match("^[╭┌╔]") then
+          return win
+        end
+      end
+    end
+  end
+end
+
+local function rb_targets() -- 文字窗+border 窗 {buf,w,h}；缺一即 nil
+  local tw = rb_text_win()
+  if not tw then
+    return nil
+  end
+  local bwin = rb_border_win(tw)
+  if not bwin then
+    return nil
+  end
+  return {
+    buf = vim.api.nvim_win_get_buf(bwin),
+    w = vim.api.nvim_win_get_width(bwin),
+    h = vim.api.nvim_win_get_height(bwin),
+  }
+end
+
+local function rb_paint(k) -- 沿周长逐字符渐变：pos 偏移 k 取组 → 颜色流动
+  local t = rb_targets()
+  if not t or t.w < 2 or t.h < 2 then
     return
   end
-  local t = {}
-  for i = 1, 8 do
-    t[i] = { RB_CHARS[i], "AiRainbow" .. i }
+  pcall(vim.api.nvim_buf_clear_namespace, t.buf, NS, 0, -1)
+  local function mark(line, col, g)
+    pcall(vim.api.nvim_buf_set_extmark, t.buf, NS, line, col, {
+      end_line = line,
+      end_col = col + 1,
+      hl_group = "AiRainbow" .. g,
+      priority = 65534,
+    })
   end
-  local cfg = vim.api.nvim_win_get_config(win)
-  cfg.border = t
-  pcall(vim.api.nvim_win_set_config, win, cfg)
+  for col = 0, t.w - 1 do -- 上 L→R
+    mark(0, col, (k + col) % 8 + 1)
+  end
+  for row = 1, t.h - 2 do -- 右 T→B
+    mark(row, t.w - 1, (k + t.w - 1 + row) % 8 + 1)
+  end
+  for col = 0, t.w - 1 do -- 下 L→R（续 pos）
+    mark(t.h - 1, col, (k + t.w + t.h - 1 + col) % 8 + 1)
+  end
+  for row = 1, t.h - 2 do -- 左 T→B（续 pos）
+    mark(row, 0, (k + 2 * t.w + t.h - 2 + row) % 8 + 1)
+  end
 end
 
-local function rb_rotate(k) -- 第 k 拍：段 i 染调色板第 (k+i-1)%8+1 色 → 流动
-  for i = 1, 8 do
-    pcall(vim.cmd, ("hi AiRainbow%d guifg=%s"):format(i, RAINBOW[(k + i - 1) % 8 + 1]))
+local function rb_reset() -- 收场：清 extmark、清组
+  local t = rb_targets()
+  if t then
+    pcall(vim.api.nvim_buf_clear_namespace, t.buf, NS, 0, -1)
   end
-end
-
-local function rb_red() -- 终态：8 段齐红
-  for i = 1, 8 do
-    pcall(vim.cmd, "hi AiRainbow" .. i .. " guifg=#ff4d4f")
-  end
-end
-
-local function rb_reset() -- 收场：清组、border 拨回 noice 默认圆角
-  for i = 1, 8 do
+  for i = 1, #RAINBOW do
     pcall(vim.cmd, "hi clear AiRainbow" .. i)
-  end
-  local win = cmdline_win()
-  if win then
-    pcall(vim.api.nvim_win_set_config, win, { border = "rounded" })
   end
 end
 
@@ -281,28 +324,13 @@ function M.report(text, terminal)
     vim.api.nvim_echo({ { text, terminal and "ErrorMsg" or "WarningMsg" } }, false, {})
     return
   end
-  local function paint_red() -- 终态 8 段齐红（timer 上下文 + 异文驱动）：重
-    rb_red() -- 绘靠「内容变化」——setcmdline 同文本是 no-op（PTY 实证：同
-    pcall(vim.fn.setcmdline, line) -- 文补 set 红边框死不上屏）；重申 border
-    rb_assert() -- 对冲 noice 重渲染重置，再整体重绘
-    pcall(vim.cmd, "redraw")
-  end
   if cmdline_open() then
-    if terminal then
-      vim.defer_fn(function() -- phase 守卫：迟到的终态不漏进下一会话
-        if S.phase == "done" then
-          paint_red()
-        end
-      end, 10)
-    else
-      pcall(vim.fn.setcmdline, line) -- 瞬态：立即上屏，tick 随即覆盖
-    end
+    pcall(vim.fn.setcmdline, line) -- 异文驱动重绘（PTY 实证）
   elseif terminal and S.phase == "done" then
     -- 框被超时杀连坐关闭（nvim 级现象，PTY 实证：timeout 瞬间 mode 已翻
     -- n 且无 Leave/Cancel——最小探针洗清 vim.system，死因在全量配置联动
-    -- 未究）：重开输入框落终态——空开框、defer 异文上屏带红边框
-    vim.fn.feedkeys(":", "n")
-    vim.defer_fn(paint_red, 30)
+    -- 未究）：重开输入框落终态
+    vim.fn.feedkeys(":" .. line, "n")
   else
     vim.api.nvim_echo({ { text, terminal and "ErrorMsg" or "WarningMsg" } }, false, {})
   end
@@ -333,19 +361,18 @@ function M.run(query, opts)
       ui_cleanup()
     end
     S.phase = "waiting"
+    rb_define()
     vim.fn.feedkeys(spin_text("⠋", 0), "n")
     S.au[#S.au + 1] = vim.api.nvim_create_autocmd("CmdlineLeave", {
       callback = function()
-        if S.phase == "waiting" then -- 提前离开=取消
-          if S.job then
-            pcall(function()
-              S.job:kill(9)
-            end)
-          end
-          ui_cleanup()
-          vim.api.nvim_echo({ { "AI ▸ Canceled", "Comment" } }, false, {})
-        else -- done 态收场（终态注释行的回车/Esc；审查负载的正常提交）
-          ui_cleanup()
+        if S.phase == "waiting" then
+          -- Leave ≠ 一定是用户取消：框被超时杀连坐关闭时 nvim 同样发
+          -- Leave（PTY 实证）。cancel-defer 与超时收尾回调是两条异步线，
+          -- defer 先跑会误杀自愈 tick（三连败案）——改记时间戳，裁决挪进
+          -- tick（300ms 宽限），超时收尾一停 tick 即关闭取消窗口
+          S.left_at = vim.uv.now()
+        elseif S.phase == "done" then
+          ui_cleanup() -- 终态框的正常收放
         end
       end,
     })
@@ -353,11 +380,27 @@ function M.run(query, opts)
     local start, tick = vim.uv.now(), 0
     S.timer = vim.fn.timer_start(80, function()
       tick = tick + 1
-      if S.phase == "waiting" and cmdline_open() then
-        rb_rotate(tick) -- 8 段错位取色=流动，与进度同拍
-        pcall(vim.fn.setcmdline, spin_text(spin[tick % #spin + 1], (vim.uv.now() - start) / 1000))
-        rb_assert() -- noice 重渲染可能重置 border，setcmdline 后重申
-      end
+      -- 整体 pcall：timer 回调抛错会让 recurring timer 静默停摆，窗体死亡
+      -- 竞态的 Invalid 一律吞掉
+      pcall(function()
+        if S.phase == "waiting" then
+          if cmdline_open() then
+            S.left_at = nil -- 重开/仍在框：取消窗口作废
+            pcall(vim.fn.setcmdline, spin_text(spin[tick % #spin + 1], (vim.uv.now() - start) / 1000))
+            rb_paint(tick) -- setcmdline 后染色：noice 同拍重渲染先落，extmark 垫后
+          elseif S.left_at and vim.uv.now() - S.left_at > 300 then
+            -- 真取消：框关了 300ms 还没回来，且收尾回调没来（phase 仍 waiting）
+            S.left_at = nil
+            if S.job then
+              pcall(function()
+                S.job:kill(9)
+              end)
+            end
+            ui_cleanup()
+            vim.api.nvim_echo({ { "AI ▸ Canceled", "Comment" } }, false, {})
+          end
+        end
+      end)
     end, { ["repeat"] = -1 })
   end
   S.gen = S.gen + 1 -- 换代：旧会话回调 gen 失配自灭
@@ -388,12 +431,19 @@ function M.run(query, opts)
         end
         -- vim.system 超时杀实测（0.12.6 探针）无 timeout 字段，呈
         -- code=124+SIGTERM(15)——判超时须认这个形状，res.timeout 留作前向兼容
+        local function terminal_state(msg)
+          -- 终态统一出口：停 tick、边框回主题色、消息留框（红圈试过
+          -- per-char/整块两条路，extmark 都被 noice 的 schedule 异步行重写
+          -- 清掉——用户裁决简单实现，弃红圈只留文本）
+          S.phase = "done"
+          ui_teardown()
+          rb_reset()
+          M.report(msg, true)
+        end
         if res.timeout or (res.code == 124 and res.signal == 15) then
           -- 超时≠链失效：不动链不自动重试，报明可直接重试。文案须短——
           -- noice cmdline 保尾截头（光标在尾），头部超宽会被截掉
-          S.phase = "done"
-          ui_teardown()
-          M.report("AI ▸ Timeout (" .. timeout_ms .. "ms) — retry freely", true)
+          terminal_state("AI ▸ Timeout (" .. timeout_ms .. "ms) — retry freely")
           return
         end
         if res.code ~= 0 then
@@ -405,27 +455,25 @@ function M.run(query, opts)
             attempt() -- phase 保持 waiting，进度接着走
             return
           end
-          S.phase = "done"
-          ui_teardown()
-          M.report(
-            "AI ▸ claude failed: " .. (res.stderr or ""):sub(1, 150) .. " (code=" .. tostring(res.code) .. ")",
-            true
+          terminal_state(
+            "AI ▸ claude failed: " .. (res.stderr or ""):sub(1, 150) .. " (code=" .. tostring(res.code) .. ")"
           )
           return
         end
-        S.phase = "done"
-        ui_teardown() -- 停 tick；cleanup 押后——审查要现查 cmdline 开合判定 setcmdline/feedkeys
         local ok, obj = pcall(vim.json.decode, res.stdout or "")
         if not ok or type(obj) ~= "table" or not obj.session_id then
-          M.report("AI ▸ Output is not JSON (not executed):\n" .. (res.stdout or ""):sub(1, 400), true)
+          terminal_state("AI ▸ Output is not JSON (not executed):\n" .. (res.stdout or ""):sub(1, 400))
           return
         end
         chain_save(obj.session_id)
         local kind, body = parse(obj.result or "")
         if not kind then
-          M.report("AI ▸ Unparseable result (not executed):\n" .. (obj.result or ""):sub(1, 400), true)
+          terminal_state("AI ▸ Unparseable result (not executed):\n" .. (obj.result or ""):sub(1, 400))
           return
         end
+        S.phase = "done"
+        ui_teardown() -- 停 tick；cleanup 押后——审查要现查 cmdline 开合判定 setcmdline/feedkeys
+        rb_reset() -- 组色先归默认：审查负载框不披彩虹
         review(kind, body, function(edited)
           if edited and edited:find("%S") then
             execute(kind, vim.trim(edited))
