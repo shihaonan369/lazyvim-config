@@ -148,7 +148,17 @@ end
 
 -- 输入框会话（模块级单飞：nvim 单线程+离开即取消，天然无并发；gen 代
 -- 计数防旧会话回调窜新会话）
-local S = { gen = 0, phase = "idle", timer = nil, au = {}, job = nil, left_at = nil }
+local S = {
+  gen = 0,
+  phase = "idle",
+  timer = nil,
+  au = {},
+  job = nil,
+  left_at = nil,
+  mode = false,
+  mode_timer = nil,
+  watching = false,
+}
 
 local function ui_present()
   return #vim.api.nvim_list_uis() > 0
@@ -184,7 +194,9 @@ local function rb_text_win() -- noice cmdline 文字窗：zindex=200（views.lua
     local ok, cfg = pcall(vim.api.nvim_win_get_config, win)
     if ok and cfg.relative ~= "" and cfg.zindex == 200 then
       local ok2, l1 = pcall(vim.api.nvim_buf_get_lines, vim.api.nvim_win_get_buf(win), 0, 1, false)
-      if ok2 and not (l1[1] or ""):match("^[╭┌╔]") then
+      -- 字符级比较：Lua 的 [╭┌╔] 是字节类，⣿/⠋ 等 E2 系首字节全误命中
+      local c1 = ok2 and vim.fn.strcharpart(l1[1] or "", 0, 1) or ""
+      if ok2 and c1 ~= "╭" and c1 ~= "┌" and c1 ~= "╔" then
         return win
       end
     end
@@ -198,7 +210,8 @@ local function rb_border_win(tw) -- nui border 窗：buffer 首行以左上角�
       local ok, cfg = pcall(vim.api.nvim_win_get_config, win)
       if ok and cfg.relative ~= "" then
         local ok2, l1 = pcall(vim.api.nvim_buf_get_lines, vim.api.nvim_win_get_buf(win), 0, 1, false)
-        if ok2 and (l1[1] or ""):match("^[╭┌╔]") then
+        local c1 = ok2 and vim.fn.strcharpart(l1[1] or "", 0, 1) or ""
+        if ok2 and (c1 == "╭" or c1 == "┌" or c1 == "╔") then
           return win
         end
       end
@@ -225,8 +238,10 @@ end
 local function rb_paint(k) -- 沿周长逐字符渐变：pos 偏移 k 取组 → 颜色流动
   local t = rb_targets()
   if not t or t.w < 2 or t.h < 2 then
+    pcall(vim.fn.writefile, { ("P k=" .. k .. " NO-TARGETS") }, "/tmp/dbg-p.log", "a")
     return
   end
+  pcall(vim.fn.writefile, { ("P k=" .. k .. " buf=" .. t.buf) }, "/tmp/dbg-p.log", "a")
   pcall(vim.api.nvim_buf_clear_namespace, t.buf, NS, 0, -1)
   local function mark(line, col, g)
     pcall(vim.api.nvim_buf_set_extmark, t.buf, NS, line, col, {
@@ -236,18 +251,17 @@ local function rb_paint(k) -- 沿周长逐字符渐变：pos 偏移 k 取组 →
       priority = 65534,
     })
   end
-  for col = 0, t.w - 1 do -- 上 L→R
-    mark(0, col, (k + col) % 8 + 1)
+  -- 按 buffer 实际内容染：非空格字符逐个上色（几何假设归零——行长短于
+  -- 窗宽时几何周长会染空），渐变相位 (k+行+列) 随 tick 错位=流动
+  for r, line in ipairs(vim.api.nvim_buf_get_lines(t.buf, 0, -1, false)) do
+    local n = vim.fn.strchars(line)
+    for ci = 0, n - 1 do
+      if vim.fn.strcharpart(line, ci, 1) ~= " " then
+        mark(r - 1, vim.fn.byteidx(line, ci), (k + r + ci) % 8 + 1)
+      end
+    end
   end
-  for row = 1, t.h - 2 do -- 右 T→B
-    mark(row, t.w - 1, (k + t.w - 1 + row) % 8 + 1)
-  end
-  for col = 0, t.w - 1 do -- 下 L→R（续 pos）
-    mark(t.h - 1, col, (k + t.w + t.h - 1 + col) % 8 + 1)
-  end
-  for row = 1, t.h - 2 do -- 左 T→B（续 pos）
-    mark(row, 0, (k + 2 * t.w + t.h - 2 + row) % 8 + 1)
-  end
+  vim.cmd("redraw") -- 观察者路径（输入期静态染色）同拍可见
 end
 
 local function rb_reset() -- 收场：只清自有 extmark。组不清——hi clear 会
@@ -268,6 +282,10 @@ end
 
 local function ui_cleanup() -- 收场：停 tick、还原图谱、撤事件桩
   ui_teardown()
+  if S.mode_timer then
+    vim.fn.timer_stop(S.mode_timer)
+    S.mode_timer = nil
+  end
   rb_reset()
   for _, id in ipairs(S.au) do
     pcall(vim.api.nvim_del_autocmd, id)
@@ -285,7 +303,7 @@ end
 -- 等待期 cmdline 文本：":" 打头=Ex 注释行，误回车=no-op（英文文案、不
 -- 回显原请求——用户裁决 2026-10-23 三修）
 local function spin_text(s, el)
-  return ':"' .. s .. string.format(" AI ▸ Translating… %4.1fs (ESC to cancel)", el)
+  return ':"' .. s .. string.format(" Translating… %4.1fs (ESC to cancel)", el)
 end
 
 -- 缺省审查形态（模块字段 = 测试缝，可整体替换）：**复用 ':' 本尊**（用户
@@ -317,7 +335,7 @@ end
 -- 入框不在（无 UI/已离开/headless）退 cmdline echo。测试覆写收集文本，
 -- 判据只断言文本本身
 function M.report(text, terminal)
-  local one = text:gsub("\n", " / "):gsub("|", "¦")
+  local one = text:gsub("\n", " / "):gsub("|", "¦"):gsub("^AI ▸ ", "")
   local line = ':"' .. one .. (terminal and " (ENTER/ESC to close)" or "")
   if not ui_present() then
     vim.api.nvim_echo({ { text, terminal and "ErrorMsg" or "WarningMsg" } }, false, {})
@@ -360,6 +378,11 @@ function M.run(query, opts)
       ui_cleanup()
     end
     S.phase = "waiting"
+    S.mode = false
+    if S.mode_timer then -- 静态彩虹 timer 交棒给执行流动 tick
+      vim.fn.timer_stop(S.mode_timer)
+      S.mode_timer = nil
+    end
     rb_define()
     vim.fn.feedkeys(spin_text("⠋", 0), "n")
     S.au[#S.au + 1] = vim.api.nvim_create_autocmd("CmdlineLeave", {
@@ -488,36 +511,78 @@ function M.run(query, opts)
 end
 
 function M.setup()
-  vim.api.nvim_create_autocmd("CmdlineChanged", {
-    callback = function()
-      if S.phase ~= "idle" then
-        return
-      end
-      local ok, line = pcall(vim.fn.getcmdline)
-      if ok and line:match("^AI") then
-        if not S.mode then
-          S.mode = true
-          rb_define()
+  -- AI 模式边框隐喻观察者（用户裁决 2026-10-23 六修）：输入 `:AI…` 即静
+  -- 态彩虹，回车执行转流动（run 的 tick），成功/离开回主题色。**注册必须
+  -- 晚于 noice**：autocmd 按注册序执行，本观察者同步染色要落在 noice 渲
+  -- 染之后才不被行重写清掉（PTY 实证：注册早于 noice 时输入期零染色）。
+  -- noice 已载则现注册；未载（极早输入）则首个 CmdlineEnter（彼时 noice
+  -- 必已载入渲染）时补注册。会话进行中（phase≠idle）由 run 的 tick 全权
+  -- 负责，本观察者让位
+  local function mode_stop() -- 停静态彩虹 timer 并复位
+    if S.mode_timer then
+      vim.fn.timer_stop(S.mode_timer)
+      S.mode_timer = nil
+    end
+    rb_reset()
+  end
+
+  local function mode_stop() -- 停静态彩虹 timer 并复位
+    if S.mode_timer then
+      vim.fn.timer_stop(S.mode_timer)
+      S.mode_timer = nil
+    end
+    rb_reset()
+  end
+
+  local function rb_watchers()
+    if S.watching then
+      return
+    end
+    S.watching = true
+    vim.api.nvim_create_autocmd("CmdlineChanged", {
+      callback = function()
+        if S.phase ~= "idle" then
+          return
         end
-        -- schedule 落染：本观察者注册早于 noice，同步染色会被 noice 随后
-        -- 的行重写清掉；排到其渲染之后即胜
-        vim.schedule(function()
-          rb_paint(0)
-        end)
-      elseif S.mode then
-        S.mode = false
-        vim.schedule(rb_reset)
-      end
-    end,
-  })
-  vim.api.nvim_create_autocmd("CmdlineLeave", {
-    callback = function()
-      if S.phase == "idle" and S.mode then
-        S.mode = false
-        rb_reset()
-      end
-    end,
-  })
+        local ok, line = pcall(vim.fn.getcmdline)
+        if ok and line:match("^AI") then
+          if not S.mode then
+            S.mode = true
+            rb_define()
+            -- 静态彩虹也走 timer：autocmd 上下文的染色必被 noice 随后的
+            -- 渲染清掉（PTY 多轮实证），timer 上下文每拍必胜（与等待期
+            -- 流动同构）
+            S.mode_timer = vim.fn.timer_start(80, function()
+              pcall(rb_paint, 0)
+            end, { ["repeat"] = -1 })
+            pcall(vim.fn.writefile, { "mode-timer started" }, "/tmp/dbg-p.log", "a")
+          end
+        elseif S.mode then
+          S.mode = false
+          mode_stop()
+        end
+      end,
+    })
+    vim.api.nvim_create_autocmd("CmdlineLeave", {
+      callback = function()
+        if S.phase == "idle" and S.mode then
+          S.mode = false
+          mode_stop()
+        end
+      end,
+    })
+  end
+  local ok_noice = pcall(require, "noice.config")
+  if ok_noice then
+    rb_watchers()
+  else
+    vim.api.nvim_create_autocmd("CmdlineEnter", {
+      once = true,
+      callback = function()
+        vim.schedule(rb_watchers)
+      end,
+    })
+  end
   vim.api.nvim_create_user_command("AI", function(o)
     local args = vim.trim(o.args or "")
     if args == "" then
