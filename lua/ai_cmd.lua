@@ -252,12 +252,28 @@ local function rb_paint(k) -- 沿周长逐字符渐变：pos 偏移 k 取组 →
     })
   end
   -- 按 buffer 实际内容染：非空格字符逐个上色（几何假设归零——行长短于
-  -- 窗宽时几何周长会染空），渐变相位 (k+行+列) 随 tick 错位=流动
+  -- 窗宽时几何周长会染空）。颜色沿周长序分布（顺时针：上 L→R → 右 T→B
+  -- → 下 R→L → 左 B→T，8 色均分环带），相位随 k 沿 +周长方向推进 = 绕框
+  -- 循环流动（用户裁决：不是整体平移，是沿框循环）
+  local P = 2 * t.w + 2 * t.h - 4 -- 周长字符数
+  local function ring_group(r, c)
+    local p
+    if r == 0 then
+      p = c
+    elseif c == t.w - 1 then
+      p = t.w - 1 + r
+    elseif r == t.h - 1 then
+      p = t.w + t.h - 2 + (t.w - 1 - c)
+    else
+      p = 2 * t.w + t.h - 3 + (t.h - 1 - r)
+    end
+    return math.floor(((p + k * 2) % P) * 8 / P) % 8 + 1
+  end
   for r, line in ipairs(vim.api.nvim_buf_get_lines(t.buf, 0, -1, false)) do
     local n = vim.fn.strchars(line)
     for ci = 0, n - 1 do
       if vim.fn.strcharpart(line, ci, 1) ~= " " then
-        mark(r - 1, vim.fn.byteidx(line, ci), (k + r + ci) % 8 + 1)
+        mark(r - 1, vim.fn.byteidx(line, ci), ring_group(r - 1, ci))
       end
     end
   end
