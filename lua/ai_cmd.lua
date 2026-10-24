@@ -586,6 +586,29 @@ function M.run(query, opts)
   S.gen = S.gen + 1 -- 换代：旧轮回调 gen 失配自灭
   local gen = S.gen
 
+  -- stderr 提纯：头部是常驻噪音（[claude-code:unrecognized_model]=非官方
+  -- 模型 ID 的登记警告，GLM 包装用户恒有、无害且曾经误导「耗时久=模型名
+  -- 错」的诊断；no-stdin 提示随 stdin 关闭消失），真错误落尾部——从尾按
+  -- 行收集到预算为止（noice cmdline 本就保尾截头）
+  local function claude_err(res)
+    local lines = {}
+    for _, l in ipairs(vim.split(res.stderr or "", "\n")) do
+      local noise = l:find("[claude-code:unrecognized_model]", 1, true) or l:find("^Warning: no stdin data")
+      if not noise and l:match("%S") then
+        lines[#lines + 1] = l
+      end
+    end
+    local out, budget = {}, 180
+    for i = #lines, 1, -1 do
+      local w = #(out[1] or "") + #lines[i] + 3
+      if out[1] and w > budget then
+        break
+      end
+      table.insert(out, 1, lines[i])
+    end
+    return table.concat(out, " ⏎ ") ~= "" and table.concat(out, " ⏎ ") or "(stderr 仅噪音，无有效信息)"
+  end
+
   local function attempt()
     -- --add-dir 必须等号连写：claude 2.x 它是变长参数，分写会吞掉后面的
     -- prompt 当目录（真机 2.1.281 + GLM 包装后端双实证「缺输入」报错）
@@ -604,7 +627,9 @@ function M.run(query, opts)
       argv[#argv + 1], argv[#argv + 2] = "--model", vim.g.ai_cmd_model
     end
     argv[#argv + 1] = build_prompt(query)
-    S.job = vim.system(argv, { text = true, cwd = cwd, timeout = timeout_ms }, function(res)
+    -- stdin 必须显式关闭：悬空时 CLI 干等 3s 才放弃读（十二修实测
+    -- 5.1s→2.1s，快路径一半延迟；stderr 的 no-stdin 警告也同源）
+    S.job = vim.system(argv, { text = true, cwd = cwd, timeout = timeout_ms, stdin = "" }, function(res)
       vim.schedule(function()
         if gen ~= S.gen or S.phase == "canceled" then
           return
@@ -635,9 +660,7 @@ function M.run(query, opts)
             attempt() -- phase 保持 waiting，进度接着走
             return
           end
-          terminal_state(
-            "AI ▸ claude failed: " .. (res.stderr or ""):sub(1, 150) .. " (code=" .. tostring(res.code) .. ")"
-          )
+          terminal_state("AI ▸ claude failed: " .. claude_err(res) .. " (code=" .. tostring(res.code) .. ")")
           return
         end
         local ok, obj = pcall(vim.json.decode, res.stdout or "")
