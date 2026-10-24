@@ -183,9 +183,11 @@ local function rb_siri_hex(i) -- i: 0..RB_N-1，色轮归一位置 → "#rrggbb"
   local r = 0.5 + 0.5 * math.cos(RB_2PI * (h + 0.0))
   local g = 0.5 + 0.5 * math.cos(RB_2PI * (h + 0.33))
   local b = 0.5 + 0.5 * math.cos(RB_2PI * (h + 0.67))
-  r = (r + (1 - r) * 0.22) ^ 0.8 -- lift 阴影
-  g = (g + (1 - g) * 0.22) ^ 0.8
-  b = (b + (1 - b) * 0.22) ^ 0.8
+  -- 亮度参数（用户裁决 2026-10-24 再提亮）：mix 白 0.38 + pow 0.7——最暗
+  -- 通道 ~0.51（原 0.29），整体亮珍珠感，色相仍分明
+  r = (r + (1 - r) * 0.38) ^ 0.7
+  g = (g + (1 - g) * 0.38) ^ 0.7
+  b = (b + (1 - b) * 0.38) ^ 0.7
   return ("#%02x%02x%02x"):format(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
 end
 
