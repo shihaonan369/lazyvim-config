@@ -338,10 +338,11 @@ local function cmdline_open()
   return vim.fn.mode(1):sub(1, 1) == "c"
 end
 
--- 等待期 cmdline 文本：":" 打头=Ex 注释行，误回车=no-op（英文文案、不
--- 回显原请求——用户裁决 2026-10-23 三修）
+-- 等待期 cmdline 文本（英文文案、不回显原请求、无前缀——用户裁决
+-- 2026-10-23 三修+七修：旧 `:"` Ex 注释前缀无视觉作用已删，误回车代价
+-- =一次 E492+取消，可接受）
 local function spin_text(s, el)
-  return ':"' .. s .. string.format(" Translating… %4.1fs (ESC to cancel)", el)
+  return s .. string.format(" Translating… %4.1fs (ESC to cancel)", el)
 end
 
 -- 缺省审查形态（模块字段 = 测试缝，可整体替换）：**复用 ':' 本尊**（用户
@@ -368,13 +369,14 @@ function M.review_line(kind, body)
   return table.concat(lines, " | ")
 end
 
--- 播报缝（模块字段 = 测试缝，同 default_review）：缺省落输入框——':' 注
--- 释行（误回车=no-op），终态留框待回车/Esc 收、瞬态由进度 tick 覆盖；输
+-- 播报缝（模块字段 = 测试缝，同 default_review）：缺省落输入框，终态留
+-- 框待 Esc 收（`:"` 注释前缀已随七修删除，回车=E492 一次，不再邀请）、
+-- 瞬态由进度 tick 覆盖；输
 -- 入框不在（无 UI/已离开/headless）退 cmdline echo。测试覆写收集文本，
 -- 判据只断言文本本身
 function M.report(text, terminal)
   local one = text:gsub("\n", " / "):gsub("|", "¦"):gsub("^AI ▸ ", "")
-  local line = ':"' .. one .. (terminal and " (ENTER/ESC to close)" or "")
+  local line = one .. (terminal and " (ESC to close)" or "")
   if not ui_present() then
     vim.api.nvim_echo({ { text, terminal and "ErrorMsg" or "WarningMsg" } }, false, {})
     return
@@ -385,7 +387,7 @@ function M.report(text, terminal)
     -- 框被超时杀连坐关闭（nvim 级现象，PTY 实证：timeout 瞬间 mode 已翻
     -- n 且无 Leave/Cancel——最小探针洗清 vim.system，死因在全量配置联动
     -- 未究）：重开输入框落终态
-    vim.fn.feedkeys(":" .. line, "n")
+    vim.fn.feedkeys(":" .. line, "n") -- 重开框必须带 ":" 打开命令行
   else
     vim.api.nvim_echo({ { text, terminal and "ErrorMsg" or "WarningMsg" } }, false, {})
   end
@@ -422,7 +424,7 @@ function M.run(query, opts)
       S.mode_timer = nil
     end
     rb_define()
-    vim.fn.feedkeys(spin_text("⠋", 0), "n")
+    vim.fn.feedkeys(":" .. spin_text("⠋", 0), "n") -- ":" 打开命令行（前缀已在 spin_text 删除）
     S.au[#S.au + 1] = vim.api.nvim_create_autocmd("CmdlineLeave", {
       callback = function()
         if S.phase == "waiting" then
