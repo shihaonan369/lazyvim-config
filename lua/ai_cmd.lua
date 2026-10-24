@@ -80,26 +80,41 @@ end
 local function build_prompt(query)
   local bufname = vim.api.nvim_buf_get_name(0)
   local ver = vim.version()
-  return table.concat({
+  -- 配置词汇表（CONTEXT.md 唯一真相源）随问随读：模型对私有概念（agent
+  -- tab/pane、session 状态等）零认知时只能瞎调研——「打开 agent tab 思
+  -- 考半天还不对」案根因。词条覆盖不到的细节再给它配置目录只读兜底
+  local ctx_path = vim.fn.stdpath("config") .. "/CONTEXT.md"
+  local glossary = ""
+  if vim.fn.filereadable(ctx_path) == 1 then
+    glossary = table.concat(vim.fn.readfile(ctx_path), "\n"):sub(1, 12000)
+  end
+  local ret = { -- 先散表后拼：词汇表条件追加（concat 数组中间插 nil 会吞行）
     "你是 Neovim 操作翻译器：把用户请求转成 nvim 操作，只回负载本身，不要解释、不要 markdown 围栏。",
     "第一行起就是以下三种格式之一：",
     "cmd:<Ex 命令>（多命令用 | 或换行分隔，每行一条）",
     "lua:<lua 代码>（vim.cmd/vim.api/vim.fn 可用，可多行）",
     "say:<回复文本>（闲聊、问候、与 nvim 操作无关的纯对话用这个；say: 后面就是要给用户看的答案本身，不执行任何命令）",
     '翻译规则：优先 cmd:；用户请求本身就是一条命令时**原样直译**（如 :AI echo "你好" → cmd:echo "你好"），不包 terminal、不加 |；terminal 只用于打开外部交互程序（如新 tab: $tabnew | terminal mysql），且 terminal 之后禁止再用 | 拼接（其后全部文本都被当作 shell 命令，拼接不合法）；生成的操作只作用于当前 nvim 实例，不写文件系统。',
-    "调查分档（用户裁决 2026-10-21）：纯操作类请求（开 tab、分屏、切换、关闭等，不依赖项目事实）**不查文件**，直接给负载；仅当涉及事实参数（数据库连接、端口、账号、文件位置等）才查实不臆测——优先让命令带 $(...) 现场取值（**$() 只在 :terminal/! 等 shell 上下文里展开**，纯 Ex 参数只认 $VAR 不做命令替换），$() 不可行时用只读工具（Read/Grep/Glob——项目根已放行，Bash 仍会拒）查项目文件确认。",
+    "调查分档（用户裁决 2026-10-21）：纯操作类请求（开 tab、分屏、切换、关闭等，不依赖项目事实）**不查文件**，直接给负载；涉及本配置私有概念（agent tab、agent pane、session 状态等）**直接照下方词汇表给负载，不要读插件源码调研**（慢且偏）；仅当涉及项目事实参数（数据库连接、端口、账号、文件位置等）或词汇表没覆盖的配置细节才查实不臆测——优先让命令带 $(...) 现场取值（**$() 只在 :terminal/! 等 shell 上下文里展开**，纯 Ex 参数只认 $VAR 不做命令替换），$() 不可行时用只读工具（Read/Grep/Glob——项目根与配置目录已放行，Bash 仍会拒）查证。",
     "",
     string.format(
-      "环境: nvim %d.%d | 项目根: %s（你的工作目录在别处，查项目文件用此绝对路径）| buffer: %s (ft=%s) | tab数: %d",
+      "环境: nvim %d.%d | 项目根: %s（你的工作目录在别处，查项目文件用此绝对路径）| 配置目录: %s | buffer: %s (ft=%s) | tab数: %d",
       ver.major,
       ver.minor,
       vim.fn.getcwd(),
+      vim.fn.stdpath("config"),
       bufname ~= "" and bufname or "[无名buffer]",
       vim.bo.filetype,
       #vim.api.nvim_list_tabpages()
     ),
-    "用户请求: " .. query,
-  }, "\n")
+  }
+  -- 词汇表条件追加（concat 数组中间插 nil 会吞掉其后的行，故先散表后拼）
+  if glossary ~= "" then
+    ret[#ret + 1] = "——配置词汇表（本 nvim 私有概念的定义，涉及时照词条办事）：\n"
+      .. glossary
+  end
+  ret[#ret + 1] = "用户请求: " .. query
+  return table.concat(ret, "\n")
 end
 
 -- 剥 markdown 围栏，取首个 cmd:/lua: 行起的整段（余行全收——提示词已锁
