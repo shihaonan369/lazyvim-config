@@ -171,43 +171,29 @@ end
 -- AiRainbow1..8 静态持调色板，收场清 extmark+清组；终态不染色（红圈
 -- 试过 per-char/整块两条路都被 noice 异步重渲染清掉，弃——终态=边框回
 -- 主题色、消息文本留框）
--- 彩虹色谱：48 色相沿色轮程序生成（HSV，s=0.75/v=1）——离散 8 色被用户
--- 否（要更丰富），连续渐变近似。组 AiRainbow1..48 静态持色，收场不 clear
--- （组常驻无害，清了会与时序竞争出无色 extmark）
+-- 彩虹色谱（2026-10-24 八修：Siri 色复刻，用户提供 GLSL）：cosine
+-- palette（IQ 式 0.5+0.5*cos(2π(h+{0,.33,.67}))，相位三通道均分色轮）+
+-- mix 白 0.22（提阴影、柔饱和）+ pow 0.8（珍珠高光）。48 采样 = 色轮离
+-- 散化，流动相位照搬 shader 的 time*0.06（整圈 16.7s，从容）
 local RB_N = 48
+local RB_2PI = 6.2831853
 
-local function rb_hue_hex(h) -- HSV(h, 0.75, 1) → "#rrggbb"
-  h = h % 360
-  local s, v = 0.75, 1
-  local c = v * s
-  local x = c * (1 - math.abs(h / 60 % 2 - 1))
-  local m = v - c
-  local r, g, b
-  if h < 60 then
-    r, g, b = c, x, 0
-  elseif h < 120 then
-    r, g, b = x, c, 0
-  elseif h < 180 then
-    r, g, b = 0, c, x
-  elseif h < 240 then
-    r, g, b = 0, x, c
-  elseif h < 300 then
-    r, g, b = x, 0, c
-  else
-    r, g, b = c, 0, x
-  end
-  return ("#%02x%02x%02x"):format(
-    math.floor((r + m) * 255 + 0.5),
-    math.floor((g + m) * 255 + 0.5),
-    math.floor((b + m) * 255 + 0.5)
-  )
+local function rb_siri_hex(i) -- i: 0..RB_N-1，色轮归一位置 → "#rrggbb"
+  local h = i / RB_N
+  local r = 0.5 + 0.5 * math.cos(RB_2PI * (h + 0.0))
+  local g = 0.5 + 0.5 * math.cos(RB_2PI * (h + 0.33))
+  local b = 0.5 + 0.5 * math.cos(RB_2PI * (h + 0.67))
+  r = (r + (1 - r) * 0.22) ^ 0.8 -- lift 阴影
+  g = (g + (1 - g) * 0.22) ^ 0.8
+  b = (b + (1 - b) * 0.22) ^ 0.8
+  return ("#%02x%02x%02x"):format(math.floor(r * 255 + 0.5), math.floor(g * 255 + 0.5), math.floor(b * 255 + 0.5))
 end
 
 local NS = vim.api.nvim_create_namespace("ai_cmd_rainbow")
 
 local function rb_define() -- 组静态持色（流动靠 extmark 错位，不靠改组）
   for i = 1, RB_N do
-    pcall(vim.cmd, ("hi AiRainbow%d guifg=%s"):format(i, rb_hue_hex((i - 1) * 360 / RB_N)))
+    pcall(vim.cmd, ("hi AiRainbow%d guifg=%s"):format(i, rb_siri_hex(i - 1)))
   end
 end
 
@@ -275,8 +261,8 @@ local function rb_paint(k) -- 沿周长逐字符渐变：pos 偏移 k 取组 →
   end
   -- 按 buffer 实际内容染：非空格字符逐个上色（几何假设归零——行长短于
   -- 窗宽时几何周长会染空）。颜色沿周长序分布（顺时针：上 L→R → 右 T→B
-  -- → 下 R→L → 左 B→T，RB_N 色均分环带=连续渐变），相位随 k 沿 +周长方
-  -- 向推进 = 绕框循环流动（用户裁决：不是整体平移，是沿框循环）
+  -- → 下 R→L → 左 B→T），hue=fract(u/P + time*0.06)（shader 同速：整圈
+  -- 16.7s）= 绕框循环流动
   local P = 2 * t.w + 2 * t.h - 4 -- 周长字符数
   local function ring_group(r, c)
     local p
@@ -289,7 +275,8 @@ local function rb_paint(k) -- 沿周长逐字符渐变：pos 偏移 k 取组 →
     else
       p = 2 * t.w + t.h - 3 + (t.h - 1 - r)
     end
-    return math.floor(((p + k * 2) % P) * RB_N / P) % RB_N + 1
+    local h = (p / P + k * 0.08 * 0.06) % 1 -- fract(u + time*0.06)
+    return math.floor(h * RB_N) + 1
   end
   for r, line in ipairs(vim.api.nvim_buf_get_lines(t.buf, 0, -1, false)) do
     local n = vim.fn.strchars(line)
