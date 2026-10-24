@@ -146,8 +146,8 @@ local function execute(kind, body)
   end
 end
 
--- 输入框会话（模块级单飞：nvim 单线程+离开即取消，天然无并发；gen 代
--- 计数防旧会话回调窜新会话）
+-- 输入框轮次（模块级单飞：nvim 单线程+离开即取消，天然无并发；gen 代
+-- 计数防旧轮回调窜新轮）
 local S = {
   gen = 0,
   phase = "idle",
@@ -158,9 +158,10 @@ local S = {
   mode = false,
   mode_timer = nil,
   watching = false,
-  t0 = nil, -- 会话起点（绝对时间基准：色相流动/呼吸/冲击全部由它派生）
-  fade_t0 = nil, -- 终态渐隐起点：tick 尾声 300ms 平滑落回主题色
-  anim = nil, -- :AIAnim 预览会话标记
+  t0 = nil, -- 本轮起点（绝对时间基准：色相流动/呼吸/冲击全部由它派生）
+  fade_t0 = nil, -- 终态渐隐起点：tick 尾声 RB_FADE_MS 平滑回基线
+  anim = nil, -- :AIAnim 预览轮标记
+  anim_timer = nil, -- 预览 4s 定时器句柄（提前收场须停）
 }
 
 local function ui_present()
@@ -179,7 +180,7 @@ end
 -- mix 白（珍珠高光）+ pow 0.7。48 采样 = 色轮离散化
 --
 -- 动效三段制（2026-10-24 九修，用户 spec）：唤起冲击（快攻慢衰+回弹涟漪）
--- → 持续呼吸（3.2s 正弦）→ 终态渐隐（300ms smoothstep）。强度 = 白混系
+-- → 持续呼吸（3.2s 正弦）→ 终态渐隐（RB_FADE_MS smoothstep 回基线）。强度 = 白混系
 -- 数 w：w 越高越接近白热核心（峰值 ~0.9 近白闪，即 ANSI 侧的"白核"——像
 -- 素级光晕交 ghostty bloom：亮度↑ 辉光自动扩张）。所有亮度均为绝对时间
 -- 函数（不逐帧累加），色相流动与亮度呼吸独立参数
@@ -189,6 +190,8 @@ local RB_W_BASE = 0.38 -- 静息白混（八修定色，静态彩虹/呼吸基�
 local RB_W_MAX = 0.92 -- 峰值钳制（近白但留一丝色相）
 local RB_WSTEP = 0.02 -- 亮度层距（2 RGB/层，呼吸扫层无可感台阶）
 local RB_WLVL = 47 -- 亮度层数（0..0.92；层 21 = 基线 0.40，层 20 = 0.38）
+local RB_FADE_MS = 300 -- 终态渐隐窗（tick 尾声当前强度→基线）
+local LEFT_GRACE_MS = 300 -- waiting 期离框取消宽限（幽灵 Leave 裁决窗）
 
 local function rb_mix_hex(i, w) -- i: 0..RB_N-1 色位，w: 白混系数 → "#rrggbb"
   local h = i / RB_N
@@ -293,24 +296,30 @@ local function rb_targets() -- 文字窗+border 窗 {buf,w,h}；缺一即 nil
   }
 end
 
-local function rb_paint(tel, fade) -- 沿周长逐字符渐变。tel=会话秒（nil=静
-  -- 态基准层，输入期）；fade=0..1 渐隐进度（终态尾声）。颜色按 buffer 实
-  -- 际内容染：非空格字符逐个上色（几何假设归零——行长短于窗宽时几何周
-  -- 长会染空）。色相沿周长序分布（顺时针：上 L→R → 右 T→B → 下 R→L →
-  -- 左 B→T）= fract(u + tel/6) 绕框循环流动（6s/圈，旧 16.7s 太缓配不
-  -- 上呼吸）；亮度按 tel 选层（冲击→呼吸），fade 段白混线性落 0 渐熄
+local function rb_paint(elapsed, fade) -- 沿周长逐字符渐变。elapsed=本轮秒
+  -- （nil=静态基准层，输入期）；fade=0..1 渐隐进度（终态尾声）。颜色按
+  -- buffer 实际内容染：非空格字符逐个上色（几何假设归零——行长短于窗宽
+  -- 时几何周长会染空）。色相沿周长序分布（顺时针：上 L→R → 右 T→B →
+  -- 下 R→L → 左 B→T）= fract(u + elapsed/6) 绕框循环流动（6s/圈，旧
+  -- 16.7s 太缓配不上呼吸）；亮度按 elapsed 选层（冲击→呼吸）
   local t = rb_targets()
   if not t or t.w < 2 or t.h < 2 then
     return
   end
   pcall(vim.api.nvim_buf_clear_namespace, t.buf, NS, 0, -1)
-  local e = tel or 0
+  local e = elapsed or 0
+  local function intensity()
+    return math.min(RB_W_MAX, RB_W_BASE + 0.5 * rb_impact(e) + 0.08 * rb_breath(e))
+  end
   local w
   if fade then
-    local s = fade * fade * (3 - 2 * fade) -- smoothstep：边缘不生硬
-    w = RB_W_BASE * (1 - s)
-  elseif tel then
-    w = math.min(RB_W_MAX, RB_W_BASE + 0.5 * rb_impact(e) + 0.08 * rb_breath(e))
+    -- 渐隐=当前强度平滑回基线（spec §4「先平滑结束冲击状态，再转入空
+    -- 闲」）。不落亚基线：w<0.38 是高饱和低亮度区（用户终态色病报告），
+    -- 基线→主题色的收尾切变是八修既定行为
+    local cur, s = intensity(), fade * fade * (3 - 2 * fade)
+    w = cur + (RB_W_BASE - cur) * s
+  elseif elapsed then
+    w = intensity()
   else
     w = RB_W_BASE
   end
@@ -327,7 +336,7 @@ local function rb_paint(tel, fade) -- 沿周长逐字符渐变。tel=会话秒�
     else
       p = 2 * t.w + t.h - 3 + (t.h - 1 - r)
     end
-    local h = (p / P + e / 6) % 1 -- fract(u + tel/6)
+    local h = (p / P + e / 6) % 1 -- fract(u + elapsed/6)
     return li .. "_" .. (math.floor(h * RB_N) + 1)
   end
   for r, line in ipairs(vim.api.nvim_buf_get_lines(t.buf, 0, -1, false)) do
@@ -355,6 +364,15 @@ local function rb_reset() -- 收场：只清自有 extmark。组不清——hi c
   end
 end
 
+local function kill_job() -- 杀在跑的 claude（防御式：句柄可空/已死）
+  if S.job then
+    pcall(function()
+      S.job:kill(9)
+    end)
+    S.job = nil
+  end
+end
+
 local function ui_teardown() -- 停进度 tick（边框/事件桩留给收场或终态接管）
   if S.timer then
     vim.fn.timer_stop(S.timer)
@@ -379,6 +397,10 @@ local function ui_cleanup() -- 收场：停 tick、还原图谱、撤事件桩
   S.au = {}
   S.fade_t0 = nil
   S.anim = nil
+  if S.anim_timer then
+    vim.fn.timer_stop(S.anim_timer)
+    S.anim_timer = nil
+  end
   S.phase = "idle"
 end
 
@@ -443,16 +465,12 @@ function M.report(text, terminal)
   end
 end
 
--- 输入框会话起手（run 与 :AIAnim 共用）：静态彩虹 timer 交棒、组矩阵、
+-- 输入框轮次起手（run 与 :AIAnim 共用）：静态彩虹 timer 交棒、组矩阵、
 -- 吞 CR、tick 装配。tick 三分支：waiting=spinner+动效；done+渐隐中=白混
--- smoothstep 落 0 后收场；waiting 期离框 300ms=真取消
+-- smoothstep 回基线后收场；waiting 期离框 LEFT_GRACE_MS=真取消
 local function ui_enter()
-  if S.phase ~= "idle" then -- 防御：上一会话未收场
-    if S.job then
-      pcall(function()
-        S.job:kill(9)
-      end)
-    end
+  if S.phase ~= "idle" then -- 防御：上一轮未收场
+    kill_job()
     ui_cleanup()
   end
   S.phase = "waiting"
@@ -477,7 +495,7 @@ local function ui_enter()
         -- Leave ≠ 一定是用户取消：框被超时杀连坐关闭时 nvim 同样发
         -- Leave（PTY 实证）。cancel-defer 与超时收尾回调是两条异步线，
         -- defer 先跑会误杀自愈 tick（三连败案）——改记时间戳，裁决挪进
-        -- tick（300ms 宽限），超时收尾一停 tick 即关闭取消窗口
+        -- tick（LEFT_GRACE_MS 宽限），超时收尾一停 tick 即关闭取消窗口
         S.left_at = vim.uv.now()
       elseif S.phase == "done" then
         ui_cleanup() -- 终态框的正常收放（渐隐提前剪断，幂等）
@@ -496,23 +514,19 @@ local function ui_enter()
           S.left_at = nil -- 重开/仍在框：取消窗口作废
           pcall(vim.fn.setcmdline, spin_text(spin[tick % #spin + 1], (vim.uv.now() - S.t0) / 1000))
           rb_paint((vim.uv.now() - S.t0) / 1000) -- setcmdline 后染色：noice 同拍重渲染先落，extmark 垫后
-        elseif S.left_at and vim.uv.now() - S.left_at > 300 then
-          -- 真取消：框关了 300ms 还没回来，且收尾回调没来（phase 仍 waiting）
+        elseif S.left_at and vim.uv.now() - S.left_at > LEFT_GRACE_MS then
+          -- 真取消：框关了超过宽限还没回来，且收尾回调没来（phase 仍 waiting）
           S.left_at = nil
-          if S.job then
-            pcall(function()
-              S.job:kill(9)
-            end)
-          end
+          kill_job()
           ui_cleanup()
           vim.api.nvim_echo({ { "AI ▸ Canceled", "Comment" } }, false, {})
         end
       elseif S.phase == "done" and S.fade_t0 then
-        -- 终态渐隐（spec §4：先平滑结束冲击再淡出）——300ms 白混落 0，
-        -- bloom 随亮度塌缩=自然的「熄辉」，落定 rb_reset 回主题色。框已
-        -- 关（超时连坐/Esc）立收，不空转
+        -- 终态渐隐（spec §4）：当前强度 smoothstep 回基线（不落亚基线——
+        -- w<0.38 高饱和低亮度，终态色病根），落定 rb_reset 回主题色。框
+        -- 已关（超时连坐/Esc）立收，不空转
         if cmdline_open() then
-          local f = (vim.uv.now() - S.fade_t0) / 300
+          local f = (vim.uv.now() - S.fade_t0) / RB_FADE_MS
           if f >= 1 then
             ui_cleanup()
           else
@@ -544,7 +558,7 @@ function M.run(query, opts)
   if ui_present() then
     ui_enter()
   end
-  S.gen = S.gen + 1 -- 换代：旧会话回调 gen 失配自灭
+  S.gen = S.gen + 1 -- 换代：旧轮回调 gen 失配自灭
   local gen = S.gen
 
   local function attempt()
@@ -573,7 +587,7 @@ function M.run(query, opts)
         -- vim.system 超时杀实测（0.12.6 探针）无 timeout 字段，呈
         -- code=124+SIGTERM(15)——判超时须认这个形状，res.timeout 留作前向兼容
         local function terminal_state(msg)
-          -- 终态统一出口：消息留框，边框交 tick 渐隐 300ms 平滑落回主题色
+          -- 终态统一出口：消息留框，边框交 tick RB_FADE_MS 平滑回基线再落主题色
           -- （旧即时 rb_reset 是从亮彩虹硬切主题色；框已死者 tick 下一拍
           -- 立收不等）。红圈曾试过 per-char/整块两条路，extmark 都被 noice
           -- 的 schedule 异步行重写清掉——用户裁决简单实现，弃红圈只留文本
@@ -613,7 +627,7 @@ function M.run(query, opts)
           return
         end
         S.phase = "done"
-        S.fade_t0 = vim.uv.now() -- 渐隐 300ms：审查框短暂披余韵再落主题色
+        S.fade_t0 = vim.uv.now() -- 渐隐 RB_FADE_MS：审查框短暂披余韵再落主题色
         -- 审查框 CR 必须原生提交：吞 CR 的 on_key 此刻先拆（feedkeys 排队
         -- 键在事件循环处理，迟拆会吞掉提交）；ui_cleanup 押给渐隐尾声，
         -- Esc 提前离开由 CmdlineLeave 兜底
@@ -638,7 +652,7 @@ function M.setup()
   -- 晚于 noice**：autocmd 按注册序执行，本观察者同步染色要落在 noice 渲
   -- 染之后才不被行重写清掉（PTY 实证：注册早于 noice 时输入期零染色）。
   -- noice 已载则现注册；未载（极早输入）则首个 CmdlineEnter（彼时 noice
-  -- 必已载入渲染）时补注册。会话进行中（phase≠idle）由 run 的 tick 全权
+  -- 必已载入渲染）时补注册。轮次进行中（phase≠idle）由 run 的 tick 全权
   -- 负责，本观察者让位
   local function mode_stop() -- 停静态彩虹 timer 并复位
     if S.mode_timer then
@@ -667,7 +681,7 @@ function M.setup()
             -- 渲染清掉（PTY 多轮实证），timer 上下文每拍必胜（与等待期
             -- 流动同构）
             S.mode_timer = vim.fn.timer_start(80, function()
-              pcall(rb_paint) -- 静态基准层（无 tel=不流动不呼吸，八修定色）
+              pcall(rb_paint) -- 静态基准层（无 elapsed=不流动不呼吸，八修定色）
             end, { ["repeat"] = -1 })
           end
         elseif S.mode then
@@ -708,7 +722,7 @@ function M.setup()
     bang = true,
     desc = "自然语言 → nvim 操作（claude -p 续链，可编辑审查；! 重置链）",
   })
-  -- 动效预览（spec §4 手动测试缝）：跑完整 UI 会话生命周期（spinner+冲
+  -- 动效预览（spec §4 手动测试缝）：跑完整 UI 轮次生命周期（spinner+冲
   -- 击→呼吸→渐隐收场）但不调 claude，4s 后假终态落框。Esc 中途取消走
   -- waiting 期原生取消路径
   vim.api.nvim_create_user_command("AIAnim", function()
@@ -717,7 +731,7 @@ function M.setup()
     end
     ui_enter()
     S.anim = true
-    vim.fn.timer_start(4000, function()
+    S.anim_timer = vim.fn.timer_start(4000, function()
       if S.anim and S.phase == "waiting" then
         S.anim = nil
         S.fade_t0 = vim.uv.now()
@@ -725,7 +739,7 @@ function M.setup()
         M.report("AI ▸ Animation preview — impact, breath and fade all fired", true)
       end
     end)
-  end, { desc = ":AI 动效预览（冲击/呼吸/渐隐，不调 claude）" })
+  end, { desc = ":AI 动效预览（冲击/呼吸/渐隐，不调 claude）" }) -- 句柄入 S.anim_timer：ui_cleanup 统一停（spec §4 不遗留定时器）
   -- 入口五变体（用户裁决）：a/A/ai/Ai/aI 经带守卫缩写归一成 :AI 文本——
   -- :a query / :a! 即 :AI query / :AI!（词内续打如 :args 不触发，缩写只在
   -- 非词字符跟上时炸；裸 CR 也展开，PTY 实测，headless feedkeys 假阴勿信；
