@@ -324,6 +324,10 @@ local function ui_cleanup() -- 收场：停 tick、还原图谱、撤事件桩
     vim.fn.timer_stop(S.mode_timer)
     S.mode_timer = nil
   end
+  if S.keyns then
+    pcall(vim.on_key, nil, S.keyns)
+    S.keyns = nil
+  end
   rb_reset()
   for _, id in ipairs(S.au) do
     pcall(vim.api.nvim_del_autocmd, id)
@@ -424,7 +428,14 @@ function M.run(query, opts)
       S.mode_timer = nil
     end
     rb_define()
-    vim.fn.feedkeys(":" .. spin_text("⠋", 0), "n") -- ":" 打开命令行（前缀已在 spin_text 删除）
+    -- 吞掉框内回车（纯展示无提交语义，误触零代价且不取消运行）；审查框
+    -- 在 ui_cleanup 后 phase=idle，原生提交不受影响
+    S.keyns = vim.on_key(function(key)
+      if key == "\r" and (S.phase == "waiting" or S.phase == "done") then
+        return ""
+      end
+    end)
+    vim.fn.feedkeys(":" .. spin_text("⠋", 0), "n") -- ":" 打开命令行
     S.au[#S.au + 1] = vim.api.nvim_create_autocmd("CmdlineLeave", {
       callback = function()
         if S.phase == "waiting" then
