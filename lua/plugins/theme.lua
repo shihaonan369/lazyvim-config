@@ -13,6 +13,12 @@ return {
       on_colors = function(colors)
         colors.bg_statusline = colors.none
       end,
+      on_highlights = function(hl, colors)
+        -- noice cmdline 弹窗内衬透明（显式定义）：styles.floats 不覆盖
+        -- noice 专属组，tokyonight 也未定义 NoiceCmdlinePopup——回退链落
+        -- 到何处不受控（noice 若加默认底色即变实底），显式置 none 锁定
+        hl.NoiceCmdlinePopup = { bg = "none", fg = colors.fg }
+      end,
     },
   },
   {
