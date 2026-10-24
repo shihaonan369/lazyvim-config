@@ -334,6 +334,51 @@ check(
 check("12 全程零 notify（弹窗已弃）", #notes12n == 0)
 check("12 成功路径零播报", #notes12r == 0)
 vim.notify = orig_notify12
+
+-- 判据 14：say: 闲聊直答（2026-10-24 十修）——不执行、不走审查、文本经
+-- report 落框为终态；空 say: 落 Empty reply（视同翻译失败）
+do
+  local notes14, reviewed14 = {}, false
+  local orig14 = A.report
+  A.report = function(text, _)
+    notes14[#notes14 + 1] = tostring(text)
+  end
+  set_result("say:你好呀，今天状态不错")
+  A.run("你今天怎么样", {
+    review = function()
+      reviewed14 = true
+    end,
+  })
+  check(
+    "14 say 文本落框恰一次",
+    vim.wait(5000, function()
+      local c = 0
+      for _, n in ipairs(notes14) do
+        if n == "你好呀，今天状态不错" then
+          c = c + 1
+        end
+      end
+      return c == 1
+    end)
+  )
+  check("14 say 不走审查", reviewed14 == false)
+  notes14 = {}
+  set_result("say:")
+  A.run("空直答", { review = function() end })
+  check(
+    "14 空 say → Empty reply（视同失败）",
+    vim.wait(5000, function()
+      for _, n in ipairs(notes14) do
+        if n:find("Empty reply", 1, true) then
+          return true
+        end
+      end
+      return false
+    end)
+  )
+  A.report = orig14
+end
+
 A.report = orig_report
 
 -- 判据 13：动效三段制（2026-10-24 九修）——冲击快攻慢衰+回弹、呼吸正弦、

@@ -82,10 +82,11 @@ local function build_prompt(query)
   local ver = vim.version()
   return table.concat({
     "你是 Neovim 操作翻译器：把用户请求转成 nvim 操作，只回负载本身，不要解释、不要 markdown 围栏。",
-    "第一行起就是以下两种格式之一：",
+    "第一行起就是以下三种格式之一：",
     "cmd:<Ex 命令>（多命令用 | 或换行分隔，每行一条）",
     "lua:<lua 代码>（vim.cmd/vim.api/vim.fn 可用，可多行）",
-    "翻译规则：优先 cmd:；打开外部程序 = 终端（如新 tab: $tabnew | terminal mysql）；生成的操作只作用于当前 nvim 实例，不写文件系统。",
+    "say:<回复文本>（闲聊、问候、与 nvim 操作无关的纯对话用这个；say: 后面就是要给用户看的答案本身，不执行任何命令）",
+    '翻译规则：优先 cmd:；用户请求本身就是一条命令时**原样直译**（如 :AI echo "你好" → cmd:echo "你好"），不包 terminal、不加 |；terminal 只用于打开外部交互程序（如新 tab: $tabnew | terminal mysql），且 terminal 之后禁止再用 | 拼接（其后全部文本都被当作 shell 命令，拼接不合法）；生成的操作只作用于当前 nvim 实例，不写文件系统。',
     "调查分档（用户裁决 2026-10-21）：纯操作类请求（开 tab、分屏、切换、关闭等，不依赖项目事实）**不查文件**，直接给负载；仅当涉及事实参数（数据库连接、端口、账号、文件位置等）才查实不臆测——优先让命令带 $(...) 现场取值（**$() 只在 :terminal/! 等 shell 上下文里展开**，纯 Ex 参数只认 $VAR 不做命令替换），$() 不可行时用只读工具（Read/Grep/Glob——项目根已放行，Bash 仍会拒）查项目文件确认。",
     "",
     string.format(
@@ -116,6 +117,8 @@ local function parse(out)
       kind = "cmd"
     elseif l:sub(1, 4) == "lua:" then
       kind = "lua"
+    elseif l:sub(1, 4) == "say:" then
+      kind = "say"
     end
     if kind then
       local rest = { vim.trim(l:sub(5)) }
@@ -624,6 +627,19 @@ function M.run(query, opts)
         local kind, body = parse(obj.result or "")
         if not kind then
           terminal_state("AI ▸ Unparseable result (not executed):\n" .. (obj.result or ""):sub(1, 400))
+          return
+        end
+        if kind == "say" then
+          -- 闲聊直答（用户裁决 2026-10-24 十修）：不审不执——审查护的是执
+          -- 行，say 无执行；文本落框即终态（回车由 on_key 吞，Esc 收框）。
+          -- 空 say: 视同翻译失败
+          if vim.trim(body) == "" then
+            terminal_state("AI ▸ Empty reply")
+          else
+            S.phase = "done"
+            S.fade_t0 = vim.uv.now()
+            M.report(body, true)
+          end
           return
         end
         S.phase = "done"
