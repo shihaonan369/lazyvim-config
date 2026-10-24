@@ -56,6 +56,12 @@ local function last_argv()
   return vim.fn.readfile(argvf)
 end
 
+-- 护真链（2026-10-24 事故：本套件起跑/收尾的 A.reset 曾把用户真链 sid
+-- 抹掉——新链=冷启动变慢+翻译风格漂移 terminal-|-echo 案。备份/恢复，
+-- 同 scripts/pty-test-ai.sh 惯例）
+local CHAIN = vim.fn.stdpath("cache") .. "/ai-cmd/chain-sid"
+local chain_bak = vim.fn.filereadable(CHAIN) == 1 and vim.fn.readfile(CHAIN)[1] or nil
+
 -- 清桩起跑（双向：既不受上轮残留影响，也不在本轮后污染用户真链）
 A.reset()
 vim.wait(300, function()
@@ -380,10 +386,14 @@ do
   check("13 AIAnim 预览命令已注册", vim.api.nvim_get_commands({})["AIAnim"] ~= nil)
 end
 
--- 收尾（链桩不留假 sid 在用户 run 目录）
+-- 收尾（链桩不留假 sid 在用户 run 目录；真链 sid 归位）
 vim.fn.delete(fake)
 vim.fn.delete(payload)
 vim.fn.delete(argvf)
 vim.fn.delete(pwdf)
 A.reset()
+if chain_bak then
+  vim.fn.mkdir(vim.fn.fnamemodify(CHAIN, ":h"), "p")
+  vim.fn.writefile({ chain_bak }, CHAIN)
+end
 lib.finish()
