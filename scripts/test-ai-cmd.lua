@@ -330,6 +330,56 @@ check("12 成功路径零播报", #notes12r == 0)
 vim.notify = orig_notify12
 A.report = orig_report
 
+-- 判据 13：动效三段制（2026-10-24 九修）——冲击快攻慢衰+回弹、呼吸正弦、
+-- 白混选层、bloom 阈值铁律。headless 无 UI 渲染，全部走 M._anim 数学缝
+do
+  local an = A._anim
+  check("13 冲击 t0 从零起跳", an.impact(0) == 0 and an.impact(-1) == 0)
+  local pk, pt = 0, 0
+  for i = 0, 400 do
+    local t, v = i / 1000, an.impact(i / 1000)
+    if v > pk then
+      pk, pt = v, t
+    end
+  end
+  check("13 冲击峰值 1.0-1.1 @≤150ms（duang 且不过曝）", pk > 1.0 and pk < 1.1 and pt <= 0.15)
+  check("13 冲击 500ms 回落 <0.3、1s 熄 <0.05", an.impact(0.5) < 0.3 and an.impact(1.0) < 0.05)
+  check(
+    "13 冲击全程为正（欠阻尼不取真弹簧：负摆=变暗闪烁，禁）",
+    an.impact(0.07) > 0 and an.impact(0.21) > 0 and an.impact(0.36) > 0
+  )
+  check(
+    "13 呼吸正弦 0→1→0（3.2s 周期）",
+    an.breath(0) == 0 and math.abs(an.breath(1.6) - 1) < 1e-6 and an.breath(3.2) < 1e-6
+  )
+  check("13 基线选层=20（w=0.38 与八修定色连续，浮点 0.38/0.02 恰=19 实证）", an.layer(0.38) == 20)
+  check(
+    "13 渐隐落 0 → 层1、峰值 → 近顶层",
+    an.layer(0) == 1 and an.layer(0.905) == 46 and an.layer(1) == 47
+  )
+  check(
+    "13 基线色金值（八修连续性：色相 0/对角 @w0.38）",
+    an.mix(0, 0.38) == "#ffa6a6" and an.mix(24, 0.38) == "#82e2e2"
+  )
+  check("13 白热峰值色（w0.9 近白留丝色相）", an.mix(0, 0.9) == "#fff2f2")
+  -- bloom 阈值铁律：全网格（47 层×48 色位）Rec.601 亮度 > 0.2——ghostty
+  -- bloom.glsl 只给 luma>0.2 的像素发光，任一层跌破即动画中段无辉光
+  local minl = 1
+  for li = 0, 46 do
+    for i = 0, 47 do
+      local hex = an.mix(i, li * 0.02)
+      local l = 0.299 * tonumber(hex:sub(2, 3), 16) / 255
+        + 0.587 * tonumber(hex:sub(4, 5), 16) / 255
+        + 0.114 * tonumber(hex:sub(6, 7), 16) / 255
+      if l < minl then
+        minl = l
+      end
+    end
+  end
+  check("13 全网格 luma>0.2（bloom 铁律，实测最暗 " .. string.format("%.3f", minl) .. "）", minl > 0.2)
+  check("13 AIAnim 预览命令已注册", vim.api.nvim_get_commands({})["AIAnim"] ~= nil)
+end
+
 -- 收尾（链桩不留假 sid 在用户 run 目录）
 vim.fn.delete(fake)
 vim.fn.delete(payload)
