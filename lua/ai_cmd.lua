@@ -114,6 +114,11 @@ local function build_prompt(query)
       .. glossary
   end
   ret[#ret + 1] = "用户请求: " .. query
+  -- 提速关键行（2026-10-24 十二修实测）：GLM 输出 ~30 tok/s 计时计费，
+  -- 模型会把 10KB 前导当设定而「等待请求」/长篇犹豫——明示单轮即时输出
+  -- 后输出 token 1382→518，端到端 38.7s→18.5s（同 prompt 同 cwd 实测）
+  ret[#ret + 1] =
+    "不要再等待或确认，上面「用户请求」就是要翻译的那一条：第一行起直接输出负载，除负载外零输出。"
   return table.concat(ret, "\n")
 end
 
@@ -259,6 +264,8 @@ local function rb_define() -- 组矩阵一次成型：亮度层×色相（47×48
   vim.cmd(table.concat(lines, "\n"))
 end
 
+-- 提示词测试缝（同 report/default_review 惯例）：提速调参对照实验用
+M._prompt = build_prompt
 -- 动效数学测试缝（同 report/default_review 惯例）：headless 渲染不了动效，
 -- 曲线形状/色值金值/选层落位/bloom 阈值在判据 13 断言
 M._anim = {
