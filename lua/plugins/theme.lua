@@ -42,6 +42,15 @@ return {
     },
   },
 
+  {
+    "Mofiqul/dracula.nvim",
+    lazy = false,
+    priority = 1000,
+    opts = {
+      transparent_bg = true,
+    },
+  },
+
   -- Configure LazyVim to load theme based on TERMINAL_THEME
   {
     "LazyVim/LazyVim",
@@ -53,7 +62,7 @@ return {
       end
 
       local theme_map = {
-        retro = "tokyonight",
+        retro = "dracula",
         paper = "catppuccin-latte",
       }
 
