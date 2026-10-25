@@ -38,3 +38,14 @@ vim.api.nvim_create_autocmd({ "BufAdd", "BufDelete", "TabNew", "TabClosed", "Tab
     end)
   end,
 })
+
+-- noice cmdline 弹窗内衬透明（所有主题统一锁）：逐主题修是打地鼠
+-- （tokyonight on_highlights、dracula overrides 各修过，catppuccin/
+-- cyberdream 漏——「换主题弹窗底色又回来了」案）。ColorScheme 在主题
+-- 高亮应用后触发，bg=none 压掉回退链里的实底；fg 不动随主题走
+vim.api.nvim_create_autocmd("ColorScheme", {
+  group = vim.api.nvim_create_augroup("noice_popup_transparent", { clear = true }),
+  callback = function()
+    vim.api.nvim_set_hl(0, "NoiceCmdlinePopup", { bg = "none" })
+  end,
+})
