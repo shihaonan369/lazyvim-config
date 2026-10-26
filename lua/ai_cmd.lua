@@ -29,7 +29,7 @@ end
 -- 查证全被拒、烧满超时（2026-10-23 mysql 连接参数案实锤）。`:AI!` 重置
 -- 链再问；链失效（transcript 被清等，claude 真报错）自动重开一次并明示
 -- ——翻译超时另算：不动链不自动重试（2026-10-23 拆分：曾混进链失效分
--- 支，reset+重试撞同一堵墙再超时，用户见 WARN+ERROR 两跳），缺省 45s、
+-- 支，reset+重试撞同一堵墙再超时，用户见 WARN+ERROR 两跳），缺省 120s（vim.g.ai_cmd_timeout 可调）、
 -- 可设 vim.g.ai_cmd_timeout（毫秒）。链会随条目增长变慢/变贵，bloat 咬
 -- 手时 :AI! 即可——要不要自动按体积截链另议
 local chain_file
@@ -391,6 +391,9 @@ end
 
 local function kill_job() -- 杀在跑的 claude（防御式：句柄可空/已死）
   if S.job then
+    -- 换代：被杀轮的回调 gen 失配自灭——否则取消后杀出的 124 形状仍落一条
+    -- 迟到的「claude failed」终态播报（kill(9) 与超时杀同呈 code=124）
+    S.gen = S.gen + 1
     pcall(function()
       S.job:kill(9)
     end)
@@ -570,7 +573,7 @@ end
 function M.run(query, opts)
   opts = opts or {}
   local review = opts.review or M.default_review
-  local timeout_ms = vim.g.ai_cmd_timeout or 45000 -- 测试缝+慢查调档（毫秒）
+  local timeout_ms = vim.g.ai_cmd_timeout or 120000 -- 缺省 2min（2026-10-26 用户裁定：给 429 退避重试留预算，45s 会把还在重试的 CLI 中途杀掉）；测试缝+慢查调档（毫秒）
   local cwd = vim.fn.stdpath("run") .. "/ai-cmd"
   vim.fn.mkdir(cwd, "p")
   local sid = nil
@@ -591,22 +594,31 @@ function M.run(query, opts)
   -- 错」的诊断；no-stdin 提示随 stdin 关闭消失），真错误落尾部——从尾按
   -- 行收集到预算为止（noice cmdline 本就保尾截头）
   local function claude_err(res)
-    local lines = {}
-    for _, l in ipairs(vim.split(res.stderr or "", "\n")) do
-      local noise = l:find("[claude-code:unrecognized_model]", 1, true) or l:find("^Warning: no stdin data")
-      if not noise and l:match("%S") then
-        lines[#lines + 1] = l
+    -- 尾部收集到预算（noice cmdline 本就保尾截头，真错误落尾部）
+    local function tail(s)
+      local lines = {}
+      for _, l in ipairs(vim.split(s or "", "\n")) do
+        local noise = l:find("[claude-code:unrecognized_model]", 1, true) or l:find("^Warning: no stdin data")
+        if not noise and l:match("%S") then
+          lines[#lines + 1] = l
+        end
       end
-    end
-    local out, budget = {}, 180
-    for i = #lines, 1, -1 do
-      local w = #(out[1] or "") + #lines[i] + 3
-      if out[1] and w > budget then
-        break
+      local out, budget = {}, 180
+      for i = #lines, 1, -1 do
+        local w = #(out[1] or "") + #lines[i] + 3
+        if out[1] and w > budget then
+          break
+        end
+        table.insert(out, 1, lines[i])
       end
-      table.insert(out, 1, lines[i])
+      return table.concat(out, " ⏎ ")
     end
-    return table.concat(out, " ⏎ ") ~= "" and table.concat(out, " ⏎ ") or "(stderr 仅噪音，无有效信息)"
+    local msg = tail(res.stderr)
+    if msg == "" then
+      msg = tail(res.stdout) -- 真错误可能只落 stdout（超时杀前置输出/包装层
+      -- 报错）——stderr 净空时尾取兜底，别再报「仅噪音」把线索吞掉
+    end
+    return msg ~= "" and msg or "(stderr/stdout 仅噪音，无有效信息)"
   end
 
   local function attempt()
@@ -627,6 +639,8 @@ function M.run(query, opts)
       argv[#argv + 1], argv[#argv + 2] = "--model", vim.g.ai_cmd_model
     end
     argv[#argv + 1] = build_prompt(query)
+    local t_spawn = vim.uv.now() -- 超时裁决基准（spawn 本地；S.t0 含打字时
+    -- 间且 headless 无值，都不合用）
     -- stdin 必须显式关闭：悬空时 CLI 干等 3s 才放弃读（十二修实测
     -- 5.1s→2.1s，快路径一半延迟；stderr 的 no-stdin 警告也同源）
     S.job = vim.system(argv, { text = true, cwd = cwd, timeout = timeout_ms, stdin = "" }, function(res)
@@ -634,8 +648,14 @@ function M.run(query, opts)
         if gen ~= S.gen or S.phase == "canceled" then
           return
         end
-        -- vim.system 超时杀实测（0.12.6 探针）无 timeout 字段，呈
-        -- code=124+SIGTERM(15)——判超时须认这个形状，res.timeout 留作前向兼容
+        -- vim.system 超时杀无 timeout 字段，且退出形状不统一：裸 signal 死
+        -- 的（sleep/sh 假 claude）=124+SIGTERM(15)，吞 TERM 的（真 claude
+        -- 是 bun，自装 handler）被升级 SIGKILL=124+9，自捕 TERM 自终的
+        -- =143——旧判据只认 15 是拿 sh 探针测出的形状，真 claude 超时全漏
+        -- 诊成「claude failed: stderr 仅噪音」，首问还误诊链失效把链
+        -- reset 掉（2026-10-26 milvus 调查案三连败；三形状 Mac 全实证）。
+        -- 裁决＝绝对期限：到期即超时，不按退出形状穷举（形状永远可能出新
+        -- 种）；res.timeout 留作前向兼容
         local function terminal_state(msg)
           -- 终态统一出口：消息留框，边框交 tick RB_FADE_MS 平滑回基线再落主题色
           -- （旧即时 rb_reset 是从亮彩虹硬切主题色；框已死者 tick 下一拍
@@ -645,7 +665,7 @@ function M.run(query, opts)
           S.fade_t0 = vim.uv.now()
           M.report(msg, true)
         end
-        if res.timeout or (res.code == 124 and res.signal == 15) then
+        if res.timeout or res.code == 124 or (vim.uv.now() - t_spawn) >= timeout_ms then
           -- 超时≠链失效：不动链不自动重试，报明可直接重试。文案须短——
           -- noice cmdline 保尾截头（光标在尾），头部超宽会被截掉
           terminal_state("AI ▸ Timeout (" .. timeout_ms .. "ms) — retry freely")
