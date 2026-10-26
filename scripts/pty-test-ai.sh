@@ -18,7 +18,8 @@ CHAIN="$HOME/.cache/nvim/ai-cmd/chain-sid"
 { sleep 14
   printf ':let g:ai_cmd_timeout=500\r'; sleep 2
   printf ':AI 开新tab\r'          # 超时段：终态注释行 + 渐隐落主题色
-  sleep 2; printf '\x1b'          # Esc 收注释行
+  sleep 4.5; printf '\x1b'        # Esc 收注释行（假 claude 被杀后孤儿 sleep
+  -- 拖住管道，回调迟到 ~2.5s；真 claude 是 bun 无孤儿，回调准点）
   sleep 1; printf ':let g:ai_cmd_timeout=60000\r'; sleep 2
   printf ':AI 开新tab\r'          # 取消段：等待期 Esc
   sleep 1; printf '\x1b'; sleep 1.5
