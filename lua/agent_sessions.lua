@@ -181,7 +181,8 @@ local function main_target_win(pane)
   local best, best_row, best_col
   for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     if w ~= pane and vim.api.nvim_win_is_valid(w) and not is_territory(w)
-      and vim.api.nvim_win_get_config(w).relative == "" then
+      and vim.api.nvim_win_get_config(w).relative == ""
+      and vim.bo[vim.api.nvim_win_get_buf(w)].buftype == "" then -- 只认真编辑窗：neo-tree 等侧栏收留文件会触发其自卫造窗（force_new_split2，2026-10-27 泄漏案放大器）
       local row, col = unpack(vim.api.nvim_win_get_position(w))
       if not best or row < best_row or (row == best_row and col < best_col) then
         best, best_row, best_col = w, row, col
@@ -217,7 +218,8 @@ end
 local function follow_buf(buf)
   local host
   for _, w in ipairs(vim.fn.win_findbuf(buf)) do
-    if vim.api.nvim_win_is_valid(w) and not is_territory(w) then
+    if vim.api.nvim_win_is_valid(w) and not is_territory(w)
+      and vim.bo[vim.api.nvim_win_get_buf(w)].buftype == "" then -- 同 main_target_win：侧栏不是落点
       if host then return end -- 显示在多个窗口，不猜
       host = w
     end
@@ -270,12 +272,21 @@ end
 local invariant = vim.api.nvim_create_augroup("agent_sessions_invariant", { clear = true })
 
 -- TermOpen 兜底标记：snacks 先开窗显示 buffer、之后才 termopen，
--- 开窗时的 BWE 里 buftype 还不是 terminal，标记会漏；terminal 身份落地时补标
+-- 开窗时的 BWE 里 buftype 还不是 terminal，标记会漏；terminal 身份落地时补标。
+-- shell 领地只认 snacks 管理的终端窗（w:snacks_win 在 open_win 同步流程末尾
+-- 落位，必先于 job/termopen）：普通窗承载的 :terminal mysql、H/L 轮换进的
+-- terminal buffer 不入领地——否则离开时 relocate 把文件塞进 neo-tree 侧栏，
+-- 触发其自卫 force_new_split2 造新窗，轮换一次多一窗（2026-10-27 泄漏案，
+-- ADR 0002 修订）
 local function mark_shell_territory(buf)
   if not vim.api.nvim_buf_is_valid(buf) or vim.b[buf].agent_session then return end
   if vim.bo[buf].buftype ~= "terminal" then return end
   for _, win in ipairs(vim.fn.win_findbuf(buf)) do
-    if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_config(win).relative == "" then
+    if
+      vim.api.nvim_win_is_valid(win)
+      and vim.w[win].snacks_win
+      and vim.api.nvim_win_get_config(win).relative == ""
+    then
       vim.w[win].shell_term = true
       vim.w[win].territory_buf = buf
     end
@@ -333,11 +344,23 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
           and not vim.b[buf].agent_session
           and vim.api.nvim_win_get_config(win).relative == ""
         then
-          -- 普通 terminal（底部 shell 等）在普通窗口上屏即标记领地
-          -- （hide/show 会换窗口，标记随 BWE 自愈；浮窗不入领地，
-          -- 且不能用 filetype=snacks_terminal 判定——BWE 时 snacks 还没设上）
-          vim.w[win].shell_term = true
-          vim.w[win].territory_buf = buf
+          -- shell 领地只认 snacks 窗（判据同 mark_shell_territory）：普通窗
+          -- 轮换/:buffer 到 terminal buffer 不再标记。snacks 开窗 sbuffer 在
+          -- 写 w:snacks_win 之前（win.lua open_win），BWE 同步判必漏——推迟
+          -- 到 schedule 复查（彼时 open_win 已收尾）；hide/show 换窗后的
+          -- 自愈标记也走此路径（ADR 0002），首开（BWE 时 buftype 尚未
+          -- terminal）由 TermOpen 兜底
+          vim.schedule(function()
+            if
+              vim.api.nvim_win_is_valid(win)
+              and vim.api.nvim_win_get_buf(win) == buf
+              and vim.w[win].snacks_win
+              and not vim.w[win].shell_term
+            then
+              vim.w[win].shell_term = true
+              vim.w[win].territory_buf = buf
+            end
+          end)
         elseif S.follow_buf == buf and not is_term then
           -- 被挪移的文件最终落定在非领地窗口：兑现焦点跟随
           -- （snacks 对自家 terminal 的挪移是多步异步的，落定才是送达时机）

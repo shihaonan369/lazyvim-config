@@ -6,7 +6,7 @@
 
 决定：在窗口层强制不变量，对一切入口（含 snacks 内部行为）免疫——
 
-- 领地标记两种：agent pane（winvar `agent_pane`，合法集 = agent session buffer，session buffer 在 spawn 时打 bufvar `agent_session`）；底部 shell 等（winvar `shell_term`，由 TermOpen/BufWinEnter 按 `buftype==terminal && 非agent && 非浮窗` 自动标记宿主窗口，hide/show 换窗口后自愈，合法集 = 任意 terminal buffer）。
+- 领地标记两种：agent pane（winvar `agent_pane`，合法集 = agent session buffer，session buffer 在 spawn 时打 bufvar `agent_session`）；底部 shell（winvar `shell_term`，仅标记 **snacks 管理的终端窗** `w:snacks_win` 非空的宿主窗口：TermOpen 兜底 + BWE schedule 复查双路（snacks open_win 先 sbuffer 后写 winvar，同步判必漏），hide/show 换窗口后自愈，合法集 = 任意 terminal buffer；普通窗承载的 `:terminal mysql`、H/L 轮换进的 terminal buffer **不入领地**）。
 - `BufWinEnter` 守卫发现非 terminal buffer 进入领地即重定向：搬到当前 tabpage 最左/最上的普通窗口（按窗口坐标取，不信任 winnr 编号）；领地独占时按几何形态新开主区窗口（全宽 shell 上方 split，右侧 pane 左侧 vsplit、pane 回 30%）。领地恢复 terminal，焦点跟随文件。重定向在 `vim.schedule` 里执行——`:e`/`:buffer` 的收尾会改写原窗口，同步搬会被覆盖。静默。
 - 焦点跟随是**事件驱动**的：snacks 会同步把误入自家窗口的文件挪走并恢复 terminal（多步异步），我们的重定回调发现"已被接管"时不重搬 buffer，只挂待兑现标记（`S.follow_buf`），同一 buffer 落定非领地窗口的那个 BWE 把焦点送达。
 - 单一机制：`BufWinEnter` 对 `:buffer` / `nvim_win_set_buf` / `:edit` 均触发（含 buffer 已在他窗显示的情况，已实测），无需覆盖各插件入口。
@@ -69,3 +69,26 @@ main_target_win"救"进树窗（ADR 0005 的实测反例）。agent tab 显示�
 发生；agent tab 落地后 pane 可为已存 session 后建，该窗从未 termopen，无人
 关行号，又从开着 number 的主窗 vsplit 继承。修：show_pane / build_display
 对显示窗显式 apply（number/relativenumber=false），与任何时机无关。
+
+## 修订（2026-10-27）：shell 领地收窄为 snacks 终端窗——轮换造窗泄漏案
+
+普通编辑窗 H/L 轮换到 manual terminal buffer（`:terminal mysql` 等）曾被
+TermOpen/BufWinEnter 无差别标记为 `shell_term` 领地（任何普通窗见 terminal
+即标）。连锁：H 离开时文件被判入侵 → `relocate()` 经 `main_target_win` 把
+文件塞进 neo-tree 侧栏（候选未排除 nofile 侧栏）→ neo-tree 自卫
+（`buffer_enter_event` → `force_new_split2`）新开窗口 → 下一轮 L 该窗又承载
+terminal 被标 → 循环造窗，无上限（headless 复现 + `WinNew` 栈证实）。
+
+修（断循环于根源 + 纵深防御，回归 scripts/test-shell-territory.lua 红绿
+28 判据）：
+
+- **标记加 `w:snacks_win` 门**：shell 领地只认 snacks 管理的终端窗（底部
+  shell 家族 `<C-/>`/`<leader>zz`）。TermOpen 兜标同步判（winvar 在
+  open_win 同步流程末尾落位，必先于 job/termopen）；BWE 路因 snacks 先
+  sbuffer 后写 winvar，推迟 `vim.schedule` 复查（彼时 open_win 已收尾），
+  hide/show 换窗自愈经此路保住。语义变化：`:tabnew|terminal`、
+  `:vsplit|terminal` 等手动终端不再成领地——文件可正常落窗，无守卫亦无
+  relocate，泄漏族根除。
+- **`main_target_win`/`follow_buf` 只认 `buftype==""` 真编辑窗**：侧栏
+  （neo-tree 等 nofile）与特殊窗不再是 relocate 去处/焦点落点；候选全无时
+  走原有几何兜底开新 split（确定性单窗，无级联）。
