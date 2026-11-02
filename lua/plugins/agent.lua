@@ -30,11 +30,12 @@ return {
       end)
     end, { desc = "New agent session (named)" })
 
-    -- Smart Add：树感知 path 提取共用；claude native 构造 @引用草稿（M.draft，
-    -- 不提交，过目后自己 CR）。行范围用 claude 原生语法 @path:l1-l2 /
+    -- Smart Add：树感知 path 提取共用；Visual 模式附加选区行范围；claude native
+    -- 构造 @引用草稿（M.draft，不提交，过目后自己 CR）。行范围用
+    -- @path:l1-l2 /
     -- @path:l（2026-10-21 -p 实证：范围生效、范围后换行正文不干扰）；
     -- **选区原文不随发**——claude 按范围自己读盘，超长选区同样只是范围引用
-    -- （用户裁决 2026-10-21）；codex 维持纯路径投喂
+    -- （用户裁决 2026-10-21）；codex 发送路径及范围
     vim.keymap.set({ "n", "v" }, "<leader>as", function()
       local ft = vim.bo.filetype
       local tree_types = { NvimTree = true, ["neo-tree"] = true, oil = true, minifiles = true, netrw = true }
@@ -60,12 +61,26 @@ return {
           end
         end
       end
+      local mode = vim.fn.mode()
       if not claude_native() then
+        local line_range = ""
+        if path == nil and (mode == "v" or mode == "V" or mode == "\22") then
+          local l1, l2 = vim.fn.line("v"), vim.fn.line(".")
+          if l1 > l2 then l1, l2 = l2, l1 end
+          local fpath = vim.fn.expand("%:p")
+          if fpath ~= "" and l1 > 0 and l2 >= l1 then
+            line_range = (l1 == l2) and tostring(l1) or (l1 .. "-" .. l2)
+            path = fpath
+          end
+        end
         path = path or vim.fn.expand("%:p")
+        if line_range ~= "" then
+          local codex_range = "#L" .. line_range:gsub("(%d+)%-(%d+)", "%1-L%2")
+          path = "@" .. path .. codex_range
+        end
         agent.send(path)
         return
       end
-      local mode = vim.fn.mode()
       if path == nil and (mode == "v" or mode == "V" or mode == "\22") then
         local l1, l2 = vim.fn.line("'<"), vim.fn.line("'>")
         local fpath = vim.fn.expand("%:p")
@@ -78,6 +93,20 @@ return {
       if path == "" then return end
       agent.draft("@" .. path .. " ")
     end, { desc = "Smart Add" })
+
+    -- codex 专属（aC/aR/aM 键位面与 claude native 同构，2026-10-30 审计后
+    -- 平移）：aC/aR = codex resume（--last≈--continue 的 cwd 最近、无参=TUI
+    -- 原生 picker）；aM = /model 注入（M.command 后端中立，codex TUI 原生
+    -- /model 弹 picker，0.166 官方斜杠命令表核实）
+    if vim.g.ai_assistant == "codex" then
+      vim.keymap.set("n", "<leader>aC", function() agent.resume("last") end,
+        { desc = "Continue (cwd-recent)" })
+      vim.keymap.set("n", "<leader>aR", function() agent.resume("picker") end, { desc = "Resume (picker)" })
+      vim.keymap.set("n", "<leader>aM", function()
+        local id = agent.current_id()
+        if id then agent.command(id, "/model") end
+      end, { desc = "Model picker" })
+    end
 
     -- claude native 专属（ADR 0007 层 0a/1/2）
     if claude_native() then

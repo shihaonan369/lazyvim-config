@@ -434,7 +434,10 @@ end
 -- 查询的 "11;?"）会泄漏成字面文本渲染进 pane。agent session 的宿主是
 -- nvim terminal 而非 tmux，env 必须陈述这个事实（scripts/repro-osc-leak.sh）。
 local function scrub_tmux_env(env)
-  local e = vim.tbl_extend("force", env or {}, { TMUX = "", TMUX_PANE = "" })
+  -- 配合 clear_env 重建环境：Codex 用 var_os("TMUX").is_some()，空串
+  -- 仍会触发 OSC52 的 tmux DCS 包装，必须让变量真正不存在。
+  local e = vim.tbl_extend("force", vim.fn.environ(), env or {})
+  e.TMUX, e.TMUX_PANE = nil, nil
   if e.TERM_PROGRAM == "tmux" then
     e.TERM_PROGRAM, e.TERM_PROGRAM_VERSION = "", ""
   end
@@ -679,6 +682,7 @@ local function spawn(cmd_list, env)
   status_watch_start() -- 邮箱先立起来，agent 启动期的事件不丢
   local opts = {
     cwd = vim.fn.getcwd(),
+    clear_env = true,
     env = vim.tbl_extend("force", scrub_tmux_env(env), {
       AGENT_SESSION_TAG = sess.tag,
       AGENT_STATUS_FILE = status_file(),
@@ -729,6 +733,10 @@ local CLAUDE_STATUS_SETTINGS = vim.fn.stdpath("config") .. "/scripts/agent-statu
 -- AGENT_CLAUDE_BIN 冒充（模块加载时求值，与 /bin/sleep 冒充 codex 同理）
 local CLAUDE_BIN = vim.env.AGENT_CLAUDE_BIN or "claude"
 
+-- codex 同款：headless 门设 AGENT_CODEX_BIN 冒充（fake TUI 渲染 ❯ 后 exec
+-- cat 存活），真身走 PATH 里的 codex
+local CODEX_BIN = vim.env.AGENT_CODEX_BIN or "codex"
+
 local function claude_spawn_cmd(cmd_list)
   if not vim.fn.fnamemodify(cmd_list[1], ":t"):find("claude", 1, true) then
     return cmd_list -- 非 claude 命令（如测试用 /bin/sleep 冒充）不注入
@@ -743,14 +751,15 @@ local function claude_spawn_cmd(cmd_list)
   return out
 end
 
--- 就绪等待：❯（输入框）渲染 = TUI 能收按键（skill 侧同款判据）。先同步探测，
+-- 就绪等待：Claude ❯ / Codex › 输入框渲染 = TUI 能收按键。先同步探测，
 -- 未就绪则 buf_attach 事件驱动等（与 transcript 的 fs_event 同哲学，零轮询）；
 -- 回调 FIFO 入队（先排的改名先于后排的投喂），60s 超时静默作废——名字可事后
 -- 树内 r 补。buffer 先亡（session 退出）则等监听自然散去。
 local function ready_probe(s)
   if not s.bufnr or not vim.api.nvim_buf_is_valid(s.bufnr) then return false end
+  local prompt = S.ptype == "codex" and "›" or "❯"
   for _, x in ipairs(vim.api.nvim_buf_get_lines(s.bufnr, 0, -1, false)) do
-    if x:find("❯", 1, true) then return true end
+    if x:match("^%s*" .. prompt) then return true end
   end
   return false
 end
@@ -767,6 +776,11 @@ local function ready_drain(s, q)
       (ok and type(hold) == "number" and hold or 0) + 50)
   end
   run_next(1)
+end
+
+function M.is_ready(id)
+  local _, s = by_id(id)
+  return s ~= nil and (s.ready == true or ready_probe(s))
 end
 
 function M.when_ready(id, fn)
@@ -820,8 +834,19 @@ end
 local adapters = {}
 
 adapters.codex = {
-  new = function()
-    local sess = spawn({ "codex" }, {})
+  new = function(name, focus)
+    local sess = spawn({ CODEX_BIN }, {})
+    display(sess.id, focus ~= false)
+    if name and name ~= "" then M.rename(sess.id, name) end
+  end,
+  -- 续接（<leader>aC/aR，键位面与 claude native 同构，ADR 0007 修订
+  -- 2026-10-30）：无参 = TUI 原生 picker（同 claude -r 零 nvim 侧代码）；
+  -- --last = cwd 最近（≈ claude --continue 的 cwd 界语义；codex exec 线程
+  -- 不进会话索引，交互会话无歧义——2026-10-30 审计事故即 exec 踩坑）
+  resume = function(last)
+    local argv = { CODEX_BIN, "resume" }
+    if last then argv[#argv + 1] = "--last" end
+    local sess = spawn(argv, {})
     display(sess.id, true)
   end,
 }
@@ -1017,10 +1042,18 @@ function M.toggle()
   end
 end
 
-function M.new(name)
-  -- name 仅 claude 适配器认（带名新建，<leader>aN）；codex/opencode 无回流通道
+function M.new(name, focus)
+  -- Codex 名字只存于本地；focus=false 供 skill 后台新建。
   local adapter = adapters[S.ptype]
-  if adapter then adapter.new(name) end
+  if adapter then adapter.new(name, focus) end
+end
+
+-- 续接入口（<leader>aC/aR 分发）。claude native 走 claude_open 链不动（cache
+-- 记忆/命名队列在那边），此处只服务 codex；plugin 态/opencode 无 resume 面，
+-- adapter 未实现即静默 no-op
+function M.resume(mode)
+  local adapter = adapters[S.ptype]
+  if adapter and adapter.resume then adapter.resume(mode == "last") end
 end
 
 function M.cycle(dir)
@@ -1089,17 +1122,19 @@ function M.draft(text)
 end
 
 -- 退出/删除 session。默认优雅退出（树内 d，用户裁决 2026-10-15）：向 pty
--- 发退出命令（Ctrl-U 清草稿 → /exit → CR，同 rename 注入序列），agent 走
+-- 发退出命令（Ctrl-U 清草稿 → 退出命令 → CR，同 rename 注入序列），agent 走
 -- 自己的收尾（存 transcript/状态），不强杀、不兜底——回合中命令排队、
--- 回合结束自然退出。force=true 直杀（ExitPre 收尾、回归测试等内部路径）。
--- codex/opencode 退出命令未核实，维持 jobstop（TODO：各家命令确认后接入）
+-- 回合结束自然退出。codex=/quit（0.166 官方斜杠命令表核实，/exit 同义，
+-- 2026-10-30）；opencode 退出命令未核实，维持 jobstop（TODO：确认后接入）
+-- force=true 直杀（ExitPre 收尾、回归测试等内部路径）
+local QUIT_CMD = { claude = "/exit", codex = "/quit" }
 function M.delete(id, force)
   local _, sess = by_id(id)
   if not sess then return end
-  if not force and S.ptype == "claude" then
+  if not force and QUIT_CMD[S.ptype] then
     local chan = vim.b[sess.bufnr].terminal_job_id
     if chan then
-      vim.api.nvim_chan_send(chan, "\21/exit\r")
+      vim.api.nvim_chan_send(chan, "\21" .. QUIT_CMD[S.ptype] .. "\r")
       return
     end
   end

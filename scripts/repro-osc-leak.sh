@@ -7,7 +7,7 @@
 # 判据（headless --clean，秒级，判据 = terminal buffer 行文本）：
 #   1) DCS 包装版查询 → 泄漏 "11;?"（信息性：哪天 nvim 修了 DCS 处理本条会翻转）
 #   2) 裸 OSC11 查询（关回显）→ buffer 无 "11;?"，nvim 自行应答
-#   3) termopen env 空串覆盖 → 子进程 TMUX 为空（scrub_tmux_env 的机制）
+#   3) clear_env 重建环境 → 子进程 TMUX 真正不存在（空串对 Codex 不够）
 # 用法：bash scripts/repro-osc-leak.sh
 
 set -u
@@ -40,11 +40,11 @@ else
   echo "2. 裸 OSC11 查询泄漏           ：否（nvim 消费并应答，符合预期）"
 fi
 
-out=$(run_term 'echo "child TMUX=[$TMUX] TMUX_PANE=[$TMUX_PANE]"' '{env={TMUX="",TMUX_PANE=""}}')
+out=$(run_term 'echo "child TMUX=[${TMUX+x}] TMUX_PANE=[${TMUX_PANE+x}]"' '{clear_env=true,env={PATH=vim.env.PATH}}')
 if grep -qF 'TMUX=[] TMUX_PANE=[]' <<<"$out"; then
-  echo "3. env 空串覆盖后子进程 TMUX 空 ：是（scrub 机制有效）"
+  echo "3. clear_env 后 TMUX 不存在 ：是（scrub 机制有效）"
 else
-  echo "3. env 空串覆盖后子进程 TMUX 空 ：否 —— 回归！" >&2
+  echo "3. clear_env 后 TMUX 不存在 ：否 —— 回归！" >&2
   fail=1
 fi
 

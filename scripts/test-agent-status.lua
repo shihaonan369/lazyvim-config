@@ -33,9 +33,13 @@ check("事件邮箱已落地", file ~= nil and vim.uv.fs_stat(file) ~= nil)
 local pid = vim.fn.getpid()
 local tag1, tag2 = pid .. ".1", pid .. ".2"
 local function emit(tag, state)
-  local fh = assert(io.open(file, "a"))
-  fh:write(string.format('{"tag":"%s","state":"%s"}\n', tag, state))
-  fh:close()
+  -- 走真实 hook → 邮箱 → fs_event → status()，避免手写邮箱绕过脚本缺陷。
+  local result = vim.system({ REPO .. "/scripts/agent-status-hook.sh", state }, {
+    env = { AGENT_SESSION_TAG = tag, AGENT_STATUS_FILE = file },
+    stdin = vim.json.encode({ hook_event_name = "PostToolUse", data = string.rep("x", 1048576) }),
+    text = true,
+  }):wait()
+  check("hook 成功且静默: " .. state, result.code == 0 and result.stdout == "" and result.stderr == "")
 end
 
 -- session2 是当前显示（后 spawn）；初始无事件全体中性色（ModeMsg）+ 无表情

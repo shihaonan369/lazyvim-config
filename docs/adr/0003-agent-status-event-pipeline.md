@@ -24,6 +24,7 @@ AGENT_STATUS_FILE      （共用 scripts/agent-status-hook.sh）    一个文件
 ## 弃用的通道（都有核实依据，记此防止反复）
 
 - **codex 终端标题**（盲文 spinner @100ms / "[ ! ] Action Required" 闪烁 @1s）：真实可用且零配置，nvim 侧 `b:term_title` + `status_redraw_buf` 自动刷新，但解析的是**展示层文案**，属用户判定的准抓取，弃。日后若接受可作零配置 fallback。
+- **codex SessionFlags 会话级注入**（2026-10-30 核实，对标 claude `--settings`）：`-c 'hooks.<Event>=[…]'` 确能在 SessionFlags 配置层定义 hooks（`hooks/list` 可见，source=sessionFlags），`-c 'hooks.state={…}` 内联表可**会话级**翻信任（SessionFlags 层信任态优先于 User 层、逐字段合并，上游 `hooks/src/config_rules.rs`；端到端实测通过，trusted_hash 对 (事件, 命令字面量) 跨进程稳定）。弃因：spawn 命令要背 10+ 条 `-c` 与钉死的哈希表，换机器/改命令串即失配——比「用户级 hooks.json + `/hooks` 信任一次」脏得多。用户裁决（2026-10-30）：维持机器级文件方案。
 - **claude statusline JSON tee**：数据最富（context% / cost），但把"给 claude 自己渲染 statusline 的通道"劫持作外部消费是未批准用法，弃。
 - **`--output-format stream-json`**：仅 `-p` 模式，不适用交互 TUI，弃。
 - **opencode SSE**（`--port` + `/event` + `/session/status`）：协议干净，但当前适配器裸 `--port`=临时端口无法发现；改固定端口又引入多 session 端口分配问题。插件在 server 进程内直接拿总线，更简，弃 SSE。

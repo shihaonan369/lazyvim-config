@@ -21,22 +21,41 @@ local function send(ch, s) pcall(vim.api.nvim_chan_send, ch, s) end
 -- 分支走 spawn；focus=false 不抢用户焦点）。带名：经 claude_open 第 4 参入
 -- nvim 侧就绪队列，TUI 就绪后自动 /rename（name 为 nil 则匿名）。返回新会话
 -- id——命令即回，命名异步送达（回流滞后见 SKILL.md）。
-_G.aspawn = function(name)
+-- UUID 取法双平台：/proc 是 Linux 独有（容器 clone 验证环境），Mac 侧
+-- io.open 返回 nil 原地炸 E5108——退 luv CSPRNG 自拼 v4（version/variant
+-- 位用十进制取模置位，不依赖 bit 库）
+local function uuid4()
   local f = io.open('/proc/sys/kernel/random/uuid', 'r')
-  local uuid = f:read('*l')
-  f:close()
-  AS.claude_open('claude --session-id ' .. uuid, {}, false, name)
+  if f then
+    local u = f:read('*l')
+    f:close()
+    return u
+  end
+  local b = { vim.uv.random(16):byte(1, -1) }
+  b[7] = b[7] % 16 + 64   -- 0x40..0x4f → version 4
+  b[9] = b[9] % 64 + 128  -- 0x80..0xbf → variant 10xx
+  local hex = {}
+  for i = 1, 16 do hex[i] = string.format('%02x', b[i]) end
+  return table.concat(hex, '', 1, 4) .. '-' .. table.concat(hex, '', 5, 6)
+    .. '-' .. table.concat(hex, '', 7, 8) .. '-' .. table.concat(hex, '', 9, 10)
+    .. '-' .. table.concat(hex, '', 11, 16)
+end
+
+_G.aspawn = function(name)
+  if vim.g.ai_assistant == 'codex' then
+    AS.new(name, false)
+  elseif vim.g.ai_assistant == 'claude' then
+    AS.claude_open('claude --session-id ' .. uuid4(), {}, false, name)
+  else
+    error('agent-sessions skill 只支持 claude/codex')
+  end
   return AS.current_id()
 end
 
--- TUI 就绪判定：输入框 ❯ 渲染出来即能收按键。
+-- 与宿主的首发 prompt 队列共用就绪判据。
 _G.aready = function(id)
-  local _, b = chan_of(id)
-  if not b then return 'nobuf' end
-  for _, x in ipairs(vim.api.nvim_buf_get_lines(b, 0, -1, false)) do
-    if x:find('❯', 1, true) then return 'ready' end
-  end
-  return 'wait'
+  if not AS.buf_of(id) then return 'nobuf' end
+  return AS.is_ready(id) and 'ready' or 'wait'
 end
 
 -- 会话命名（/rename 注入，claude 侧 custom-title.json 即落；nvim 树回流有

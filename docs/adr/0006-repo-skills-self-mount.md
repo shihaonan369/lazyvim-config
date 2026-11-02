@@ -37,9 +37,17 @@ agent-sessions skill（在 claude 会话内远程驱动宿主 nvim 的 agent_ses
 
 ## 已知边界
 
-- asend.lua 的 uuid 读 `/proc/sys/kernel/random/uuid`，Linux 容器成立；macOS
-  上 `_G.aspawn` 不可用（其余 API 不依赖 /proc）。挂载本身跨平台无副作用。
+- Claude 新建 UUID 优先读 `/proc/sys/kernel/random/uuid`，macOS 使用 luv 随机数生成；Codex 使用其原生新建入口。
 - Windows 宿主直接跑本配置时 `fs_symlink` 需开发者模式/权限，失败走静默
   分支（当前无此场景，不为其加复杂度）。
 - 判据落在 `lua/config/lazy.lua` 的 `[skill-mount-begin/end]` 标记区间，
   `scripts/test-skill-mount.sh/.lua` 提取该区间原文在沙箱 HOME/XDG 下实测。
+
+## 修订（2026-11-01）：Codex 发现与调用
+
+自愈挂载同时覆盖 `~/.claude/skills` 和 `~/.agents/skills`（Codex 用户级发现目录），
+两个目录沿用相同的占名保护和断链修复规则。skill 实体仍仅维护本仓一份。
+
+agent-sessions 的 aspawn 按宿主 ai_assistant 分流：Claude 保留原有路径；Codex
+使用 M.new(name, false) 后台创建，名字仅保存在 Neovim。就绪检测统一由宿主
+M.is_ready/when_ready 提供，Claude 识别 ❯、Codex 识别 ›，首发 prompt 沿用队列。

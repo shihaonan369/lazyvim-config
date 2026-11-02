@@ -92,3 +92,22 @@ session 池/pane/领地/tab 视口/树/状态管线/名字续流/skill/回归门
   审查窗的 scratch 显示不保二进制保真）。
 - 插件路径的宽度守卫（`nvim_win_set_width` 包装、`guard_display_width`）在
   并存期保留（plugin 态仍需），0b 一并摘除。
+
+## 修订（2026-10-30）：aC/aR/aM 键位面平移 codex
+
+codex 支持面三会话审计（文档/代码/CLI 实测）后，把本 ADR「claude native 专属」
+三键中不依赖 claude 私有通道的部分平移给 codex（键位与隐喻一字不差）：
+
+- `<leader>aC/aR` → `adapters.codex.resume`：`codex resume --last` ≈
+  `--continue` 的 cwd 界语义；无参 = TUI 原生 picker（同 `-r` 零 nvim 侧
+  代码）。claude 链路（claude_open/cache/命名队列）不动；新公开
+  `M.resume(mode)` 按 adapter 分发，未实现者（opencode/plugin 态）静默
+  no-op。
+- `<leader>aM` → `M.command(id, "/model")`：注入机制本就后端中立，codex
+  TUI 原生 `/model` 弹 picker（0.166 官方斜杠命令表核实；`\21` 清草稿在
+  codex 侧行为未实测，残留风险=旧草稿拼接，命令本体不丢）。
+- `AGENT_CODEX_BIN` 冒充惯例（同 `AGENT_CLAUDE_BIN`，模块加载时求值）；
+  回归门 `scripts/test-agent-codex.{sh,lua}`（argv 落盘 + chan_send 间谍，
+  含 claude 专属面不越界判据）。
+- 已知坑（审计实测）：`codex exec resume --last` 的 --last 按 cwd 过滤可
+  命中陈旧会话——exec 线程不进会话索引所致，交互会话无此歧义。
