@@ -739,6 +739,9 @@ local CODEX_BIN = vim.env.AGENT_CODEX_BIN or "codex"
 
 local function codex_spawn_cmd(cmd_list)
   local out = vim.deepcopy(cmd_list)
+  -- 只输出名字的 OSC 标题供 TermRequest 消费；无状态动画/项目名混入。
+  -- Codex 0.166 会将此显示名截到 48 个字符，完整名字仍由 Codex 保存。
+  vim.list_extend(out, { "-c", 'tui.terminal_title=["thread-name"]' })
   -- 与 Claude bypassPermissions 对齐：外层沙箱内跳过确认及 Codex 内层沙箱。
   if vim.env.IS_SANDBOX == "1" then
     out[#out + 1] = "--dangerously-bypass-approvals-and-sandbox"
@@ -942,6 +945,20 @@ function M.setup()
   if S.augroup then return end
   S.augroup = vim.api.nvim_create_augroup("agent_sessions", { clear = true })
   S.ptype = vim.g.ai_assistant
+
+  vim.api.nvim_create_autocmd("TermRequest", {
+    group = S.augroup,
+    callback = function(args)
+      if S.ptype ~= "codex" then return end
+      local idx = by_buf(args.buf)
+      if not idx then return end
+      -- Codex 0.166 的正式标题出口是 OSC 0（BEL 结尾）；Neovim 已拆出
+      -- terminator。按 buffer 归因，后台 session 同样回流，不抓 TUI 文案。
+      local seq = args.data and args.data.sequence or ""
+      local title = seq:match("^\27%]0;(.*)$")
+      if title then name_apply(S.sessions[idx], title) end
+    end,
+  })
 
   vim.api.nvim_create_autocmd("TermOpen", {
     group = S.augroup,
@@ -1217,8 +1234,8 @@ end
 -- custom-title 回流（claude 是权威），命令没被执行则树保持旧名，不假成功
 -- （用户裁决：显示的统一性要单点）。Enter 用 \r 不用 \n（\n 是 M.send 的
 -- "粘贴待审"语义，另回事），且 CR 与文字分包延时（详见函数内注释）。注入走
--- 被选中 session 自己的 channel，选谁发谁。codex/opencode 无回流通道，暂
--- 本地落名（TODO：各家斜杠命令确认后改走注入+回流）
+-- 被选中 session 自己的 channel，选谁发谁。codex/opencode 的树内改名暂
+-- 本地落名（Codex 手输 /rename 已走 OSC 回流；树内 r 的命令注入待接）
 -- /rename 持久化核实（不假成功，ADR 0003 修订 2026-10-21）：实测 claude
 -- 2.1.274 在 resume 后的 /rename 只改进程内存——custom-title.json 与
 -- transcript 双静默，退出即失（PTY 全周期探针：改名 TUI 生效+干净退出，

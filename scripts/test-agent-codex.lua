@@ -40,6 +40,7 @@ check("0 :ClaudeCode 不越界", vim.fn.exists(":ClaudeCode") == 0)
 -- argv 佐证：count 判据在 spawn 注册即真，fake 进程异步起跑——须等到 argv
 -- 落盘且与期望一致（readfile 一律 pcall，缺文件不是错误是未到时）
 local function argv_wait(expect)
+  expect = (expect == "" and "" or expect .. " ") .. '-c tui.terminal_title=["thread-name"]'
   if vim.env.IS_SANDBOX == "1" then
     expect = expect == "" and "--dangerously-bypass-approvals-and-sandbox"
       or expect .. " --dangerously-bypass-approvals-and-sandbox"
