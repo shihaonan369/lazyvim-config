@@ -737,6 +737,15 @@ local CLAUDE_BIN = vim.env.AGENT_CLAUDE_BIN or "claude"
 -- cat 存活），真身走 PATH 里的 codex
 local CODEX_BIN = vim.env.AGENT_CODEX_BIN or "codex"
 
+local function codex_spawn_cmd(cmd_list)
+  local out = vim.deepcopy(cmd_list)
+  -- 与 Claude bypassPermissions 对齐：外层沙箱内跳过确认及 Codex 内层沙箱。
+  if vim.env.IS_SANDBOX == "1" then
+    out[#out + 1] = "--dangerously-bypass-approvals-and-sandbox"
+  end
+  return out
+end
+
 local function claude_spawn_cmd(cmd_list)
   if not vim.fn.fnamemodify(cmd_list[1], ":t"):find("claude", 1, true) then
     return cmd_list -- 非 claude 命令（如测试用 /bin/sleep 冒充）不注入
@@ -835,7 +844,7 @@ local adapters = {}
 
 adapters.codex = {
   new = function(name, focus)
-    local sess = spawn({ CODEX_BIN }, {})
+    local sess = spawn(codex_spawn_cmd({ CODEX_BIN }), {})
     display(sess.id, focus ~= false)
     if name and name ~= "" then M.rename(sess.id, name) end
   end,
@@ -846,7 +855,7 @@ adapters.codex = {
   resume = function(last)
     local argv = { CODEX_BIN, "resume" }
     if last then argv[#argv + 1] = "--last" end
-    local sess = spawn(argv, {})
+    local sess = spawn(codex_spawn_cmd(argv), {})
     display(sess.id, true)
   end,
 }

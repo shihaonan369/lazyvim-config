@@ -40,6 +40,10 @@ check("0 :ClaudeCode 不越界", vim.fn.exists(":ClaudeCode") == 0)
 -- argv 佐证：count 判据在 spawn 注册即真，fake 进程异步起跑——须等到 argv
 -- 落盘且与期望一致（readfile 一律 pcall，缺文件不是错误是未到时）
 local function argv_wait(expect)
+  if vim.env.IS_SANDBOX == "1" then
+    expect = expect == "" and "--dangerously-bypass-approvals-and-sandbox"
+      or expect .. " --dangerously-bypass-approvals-and-sandbox"
+  end
   return vim.wait(3000, function()
     local ok, lines = pcall(vim.fn.readfile, argsf)
     return ok and type(lines) == "table" and table.concat(lines, " ") == expect
@@ -54,6 +58,7 @@ local sid = _G.aspawn("skill-codex")
 check("skill Codex 建会话", A.count() == 1 and A.buf_of(sid) ~= nil)
 check("skill 后台创建不抢焦点", vim.api.nvim_get_current_win() == before_win)
 check("skill Codex 本地名", A.list()[1].name == "skill-codex")
+check("skill Codex 启动权限参数", argv_wait(""))
 check("skill Codex › 就绪", vim.wait(3000, function() return _G.aready(sid) == "ready" end))
 local pf = vim.fn.tempname()
 vim.fn.writefile({ "skill first prompt", "second line" }, pf)
