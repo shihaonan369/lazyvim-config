@@ -42,26 +42,35 @@ local function emit(tag, state)
   check("hook 成功且静默: " .. state, result.code == 0 and result.stdout == "" and result.stderr == "")
 end
 
--- session2 是当前显示（后 spawn）；初始无事件全体中性色（ModeMsg）+ 无表情
+-- session2 是当前显示（后 spawn）；初始无事件全体中性色（AgentNeutral）+ 无表情
 check("初始中性色 + 当前实心/后台空心",
-  A.status():find("%#ModeMsg#" .. outline, 1, true) ~= nil
-  and A.status():find("%#ModeMsg#" .. icon, 1, true) ~= nil)
+  A.status():find("%#AgentNeutral#" .. outline, 1, true) ~= nil
+  and A.status():find("%#AgentNeutral#" .. icon, 1, true) ~= nil)
+
+-- 固定色板自有组已定义（2026-11-03 修订：摆脱主题漂移），暗/亮分支不拘
+check("状态色四组已定义",
+  (function()
+    for _, g in ipairs({ "AgentWorking", "AgentIdle", "AgentAttention", "AgentNeutral" }) do
+      if not vim.api.nvim_get_hl(0, { name = g }).fg then return false end
+    end
+    return true
+  end)())
 
 -- 先泵一次事件循环：macOS FSEvents 流要等 loop 运行才真正激活，
 -- 此前写入的通知会丢（真实场景 spawn 到首个 hook 事件隔着用户交互，无此竞态）
 quiesce(300)
 
 emit(tag1, "working")
-check("tag1(后台) working → Function + excited 空心", settle("%#Function#" .. excited_o))
+check("tag1(后台) working → AgentWorking + excited 空心", settle("%#AgentWorking#" .. excited_o))
 
 emit(tag2, "idle")
-check("tag2(当前) idle → Character + happy 实心", settle("%#Character#" .. happy))
+check("tag2(当前) idle → AgentIdle + happy 实心", settle("%#AgentIdle#" .. happy))
 
 -- 外来 tag：别的 nvim 实例的事件不得影响本实例
 local before = A.status()
 emit("999999.9", "attention")
 quiesce()
-check("外来 tag 被忽略", A.status() == before and not A.status():find("DiagnosticError", 1, true))
+check("外来 tag 被忽略", A.status() == before and not A.status():find("AgentAttention", 1, true))
 
 -- 半行写入：残行不消费，补全换行后生效
 do
@@ -70,31 +79,31 @@ do
   fh:close()
 end
 quiesce()
-check("半行暂不生效", not A.status():find("DiagnosticError", 1, true))
+check("半行暂不生效", not A.status():find("AgentAttention", 1, true))
 do
   local fh = assert(io.open(file, "a"))
   fh:write("}\n")
   fh:close()
 end
-check("补全后 attention → DiagnosticError", settle("%#DiagnosticError#" .. confused_o))
+check("补全后 attention → AgentAttention", settle("%#AgentAttention#" .. confused_o))
 
 -- 非法状态词：不得清掉既有状态
 emit(tag1, "bogus")
 quiesce()
-check("非法状态词被忽略", A.status():find("%#DiagnosticError#" .. confused_o, 1, true) ~= nil)
+check("非法状态词被忽略", A.status():find("%#AgentAttention#" .. confused_o, 1, true) ~= nil)
 
 -- pane 收起：全体睡觉，颜色仍按状态
 A.hide()
 quiesce()
 check("收起后全体睡觉且色保留",
-  A.status():find("%#DiagnosticError#" .. asleep, 1, true) ~= nil
-  and A.status():find("%#Character#" .. asleep, 1, true) ~= nil)
+  A.status():find("%#AgentAttention#" .. asleep, 1, true) ~= nil
+  and A.status():find("%#AgentIdle#" .. asleep, 1, true) ~= nil)
 
 -- 删除当前 session：TermClose 移除、编号顺延、状态随之消失。
 -- pane 仍处于收起状态，先 show 回来再断言表情图标与状态保留
 A.delete(2, true)
 A.show_only()
-check("删除后 session1 转正(空心→实心)且状态保留", settle("%#DiagnosticError#" .. confused))
+check("删除后 session1 转正(空心→实心)且状态保留", settle("%#AgentAttention#" .. confused))
 check("删除后无睡觉/空心残留",
   not A.status():find(asleep, 1, true) and not A.status():find(confused_o, 1, true)
   and not A.status():find(outline, 1, true))

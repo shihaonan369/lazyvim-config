@@ -40,6 +40,8 @@ statusline 透明，图标配色实际落在终端背景上，故按两套生效
 | attention | `DiagnosticError` | 4.17 | 4.80 | 红（待裁决） |
 | 无事件 | `ModeMsg` | 8.10 | 7.06 | 灰（中性） |
 
+（2026-11-03 起上表作废——借主题组的颜色随主题漂移，已改自有组固定双色板，见文末「修订（2026-11-03）：配色冻结」；落选数据仍有效。）
+
 配色集中在 `agent_sessions.lua` 的 `STATE_HL` / `HL_NEUTRAL`，勿按语义直觉改回 DiagnosticWarn 一类（见上表落选数据）。
 
 ## 机器侧配置
@@ -147,3 +149,28 @@ msg(base64) 随 working/done 兼走，idle 态改名的即时回流由随仓桥�
 （scripts/agent-pi-bridge.ts，spawn 经 `pi -e` 注入）向本邮箱单行追加
 `{"tag","name"}`（`status_apply` name 路由）。详见
 docs/adr/0008-pi-backend.md。
+
+## 修订（2026-11-03）：配色冻结为自有组固定双色板（摆脱主题漂移）
+
+借主题组（Function/Character/DiagnosticError/ModeMsg）的颜色随主题定义漂移——
+用户主题转盘含第三套 dracula 时实锤：dracula 把 `Function` 做成黄 `#f1fa8c`
+（working 蓝变黄），`ModeMsg` 链到 `NvimLightGreen`（终端亮绿）与 idle 绿撞色，
+而上方实测表只覆盖 tokyo/latte。用户裁决：**改为不受主题影响**。
+
+机制：自有高亮组 `AgentWorking` / `AgentIdle` / `AgentAttention` /
+`AgentNeutral` + 固定色板两套，按 `Normal` bg 的 WCAG 相对亮度分支
+（<0.5 暗板，bg 拿不到回退 `&background`）；`M.setup()` 立即定义一次，
+`ColorScheme` autocmd 重申（换主题 `hi clear` 抹掉后即重算重分支，零轮询）。
+色值冻自原实测入选值并按 dracula 底色复核，微调两处（暗板红 #db4b4b 在
+dracula 仅 3.47 → #ff5555；亮板绿青 #179299 仅 3.31 → #0e7d88），全表
+最小对比度 4.31:1（WCAG ≥3:1）：
+
+| 状态 | 组 | 暗板 hex | tokyo/dracula | 亮板 hex | latte |
+|---|---|---|---|---|---|
+| working | `AgentWorking` | #7aa2f7 | 6.79 / 5.65 | #1e66f5 | 4.34 |
+| idle | `AgentIdle` | #9ece6a | 9.35 / 7.79 | #0e7d88 | 4.31 |
+| attention | `AgentAttention` | #ff5555 | 5.44 / 4.53 | #d20f39 | 4.80 |
+| 无事件 | `AgentNeutral` | #a9b1d6 | 8.10 / 6.75 | #4c4f69 | 7.06 |
+
+未来加第四套主题只需保证 Normal bg 可判暗/亮即可，色板不再随主题漂移。
+statusline/树共用同一组名，回归门增"四组已定义"判据。

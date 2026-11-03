@@ -452,19 +452,57 @@ end
 -- 状态挂在 session 上随 TermClose 消失；机器侧 hook 未配置时状态恒为 nil，
 -- statusline 呈中性色，不报错。
 
--- 状态配色：借现成主题组（repo 惯例），实测须在两套生效主题（tokyonight 暗底
--- #1a1b26 / catppuccin-latte 亮底 #eff1f5，statusline 透明故按主题 base bg）下
--- 都满足 WCAG ≥3:1。语义首选反而落选：DiagnosticWarn 橙 latte 仅 2.31、
--- DiagnosticOk 绿 latte 2.96、Special 粉 latte 2.34、Comment 灰 tokyo 2.76。
--- 入选：Function 蓝 6.79/4.34、Character 绿青 9.35/3.31、
--- DiagnosticError 红 4.17/4.80、ModeMsg 灰 8.10/7.06（数据见 docs/adr/0003）。
+-- 状态配色（2026-11-03 修订：自有组 + 固定双色板，摆脱主题漂移）：原借主题组
+-- （Function/Character/…），颜色随主题定义漂移——dracula 把 Function 做成黄
+-- （working 蓝变黄）、ModeMsg 链到 NvimLightGreen 与 idle 绿撞色，而 ADR 0003
+-- 实测表只覆盖 tokyo/latte。改为自有高亮组 AgentWorking/AgentIdle/
+-- AgentAttention/AgentNeutral + 固定色板，按 Normal bg 亮度分支暗板/亮板，
+-- ColorScheme 事件重申（换主题即重分支，零轮询）。色值冻自 ADR 0003 实测
+-- 入选（暗板 tokyo 基底 / 亮板 latte 基底）并按 dracula 底色复核：暗板红取
+-- #ff5555（原 #db4b4b 在 dracula 仅 3.47）、亮板绿青改 #0e7d88（原 #179299
+-- 仅 3.31），全表最小对比度 4.31（数据见 docs/adr/0003 修订）。
 local STATE_HL = {
-  working = "Function",
-  idle = "Character",
-  attention = "DiagnosticError",
+  working = "AgentWorking",
+  idle = "AgentIdle",
+  attention = "AgentAttention",
 }
 
-local HL_NEUTRAL = "ModeMsg" -- 无事件（机器侧 hook 未配置）时的中性色
+local HL_NEUTRAL = "AgentNeutral" -- 无事件（机器侧 hook 未配置）时的中性色
+
+local HL_DARK = { -- 暗底（tokyo #1a1b26 / dracula #282a36）
+  AgentWorking = "#7aa2f7",
+  AgentIdle = "#9ece6a",
+  AgentAttention = "#ff5555",
+  AgentNeutral = "#a9b1d6",
+}
+local HL_LIGHT = { -- 亮底（latte #eff1f5）
+  AgentWorking = "#1e66f5",
+  AgentIdle = "#0e7d88",
+  AgentAttention = "#d20f39",
+  AgentNeutral = "#4c4f69",
+}
+
+-- WCAG 相对亮度，用于 Normal bg 的暗/亮分支（主题背景亮度 0.01~0.03 vs
+-- 0.87，阈值 0.5 居中即可）；bg 拿不到（无主题/透明）回退 &background
+local function hl_luminance(hex)
+  local function lin(x)
+    x = x / 255
+    return x <= 0.04045 and x / 12.92 or ((x + 0.055) / 1.055) ^ 2.4
+  end
+  return 0.2126 * lin(tonumber(hex:sub(2, 3), 16))
+    + 0.7152 * lin(tonumber(hex:sub(4, 5), 16))
+    + 0.0722 * lin(tonumber(hex:sub(6, 7), 16))
+end
+
+local function hl_apply()
+  local bg = vim.api.nvim_get_hl(0, { name = "Normal" }).bg
+  local dark = type(bg) == "number"
+    and hl_luminance(string.format("#%06x", bg)) < 0.5
+    or vim.o.background == "dark"
+  for name, hex in pairs(dark and HL_DARK or HL_LIGHT) do
+    vim.api.nvim_set_hl(0, name, { fg = hex })
+  end
+end
 
 
 local status_watcher = {
@@ -1026,6 +1064,14 @@ function M.setup()
   if S.augroup then return end
   S.augroup = vim.api.nvim_create_augroup("agent_sessions", { clear = true })
   S.ptype = vim.g.ai_assistant
+
+  -- 状态配色自有组：立即定义一次；换主题（hi clear 会抹掉）后由 ColorScheme
+  -- 重申并按新 Normal bg 重分支（暗板/亮板）
+  hl_apply()
+  vim.api.nvim_create_autocmd("ColorScheme", {
+    group = S.augroup,
+    callback = hl_apply,
+  })
 
   vim.api.nvim_create_autocmd("TermRequest", {
     group = S.augroup,
