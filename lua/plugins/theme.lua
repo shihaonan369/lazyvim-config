@@ -69,22 +69,22 @@ return {
     },
   },
 
-  -- Configure LazyVim to load theme based on TERMINAL_THEME
+  -- Configure LazyVim to load theme based on TERMINAL_THEME_MODE (light/dark)
   {
     "LazyVim/LazyVim",
     opts = function()
       -- 读取环境变量，不区分大小写
-      local term_theme = os.getenv("TERMINAL_THEME")
-      if term_theme then
-        term_theme = term_theme:lower()
+      local mode = os.getenv("TERMINAL_THEME_MODE")
+      if mode then
+        mode = mode:lower()
       end
 
       local theme_map = {
-        retro = "dracula",
-        paper = "catppuccin-latte",
+        dark = "tokyonight",
+        light = "catppuccin-latte",
       }
 
-      local chosen_theme = theme_map[term_theme] or "tokyonight"
+      local chosen_theme = theme_map[mode] or "tokyonight"
 
       return {
         colorscheme = chosen_theme,

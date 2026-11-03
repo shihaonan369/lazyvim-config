@@ -1,7 +1,7 @@
 #!/bin/bash
 # :AI PTY 全链验（script -q 真配置真 TUI，秒级）。判据 = 翻译/取消/超时/
 # 执行四段语义 + 动效三段（冲击峰值层/呼吸带/extmark 清零）+ 单帧多色。
-# 用法：TERMINAL_THEME=retro bash scripts/pty-test-ai.sh（默认 tokyonight）
+# 用法：TERMINAL_THEME_MODE=light|dark bash scripts/pty-test-ai.sh（未设时 tokyonight）
 set -u
 FAKE=/tmp/pty-fake-claude.sh
 PAYLOAD=/tmp/pty-payload.json
