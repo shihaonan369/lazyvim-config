@@ -11,15 +11,18 @@ pi（`@earendil-works/pi-coding-agent`，原 badlogic/pi-mono 公司化迁移，
 pi 机制比 claude/codex 更干净（`-n` 落名免注入、`--session-id` 链缺则建、
 状态通道零装机）。用户裁决（2026-11-03）：与 nexus/hermes 完全正交（pi pane
 = 裸 pi，全局扩展自然生效）；`:AI` 默认后端全局切 pi；pane 用
-`--tui-mode regular`；`ai_assistant` 默认仍 claude（pi 为第四值）。
+`--tui-mode fullscreen`（同日终裁：初选 regular 后改 fullscreen，与 claude
+的 CLAUDE_CODE_NO_FLICKER=1 全屏 alternate screen 对齐）；`ai_assistant` 默认
+仍 claude（pi 为第四值）。
 
 ## 决定
 
 - **adapters.pi**（agent_sessions.lua）：新建 spawn
-  `{PI_BIN, [-n name], --tui-mode regular}`——名字随 `-n` 落进 pi 本尊
+  `{PI_BIN, [-n name], --tui-mode fullscreen}`——名字随 `-n` 落进 pi 本尊
   （session_info entry 持久化），**免 /rename 注入队列**；resume 同 codex
   键位面（`--continue`=cwd 最近 / `--resume`=TUI 原生选择器）。`--tui-mode
-  regular`（原生 scrollback 钉底）与 codex 同款领地隐喻；env 注
+  fullscreen`（alternate screen 整窗渲染，与 claude CLAUDE_CODE_NO_FLICKER
+  同款）恒附钉住，防用户 /settings 改动漂移；env 注
   `PI_PROGRAM_STATUS=1` + `AGENT_DIFF_DIR`。
 - **状态+名字 = OSC 7501 Program Status 直收**（ADR 0003 管线的 pi 出口）：
   pi 原生发 `\27]7501;state=…:app=…:msg=<base64 会话名>ST`，nvim 既有

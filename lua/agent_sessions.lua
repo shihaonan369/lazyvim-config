@@ -780,15 +780,16 @@ end
 -- 冒充（fake TUI 渲染 ─ 规则线 + 7501 报文），真身走 PATH 里的 pi
 local PI_BIN = vim.env.AGENT_PI_BIN or "pi"
 
--- pi 专属启动参数：--tui-mode regular（原生 scrollback 钉底，与 codex 同款
--- 领地隐喻）。状态/名字出口 = OSC 7501（env PI_PROGRAM_STATUS=1 绕过终端
--- 应答握手——nvim :terminal 无人应答，G1 实证 TermRequest 原样收到），零
--- 机器侧安装件（优于 claude --settings / codex hooks.json）。沙箱：pi 无内建
--- 权限系统（官方 security.md，天生 full-auto），无 flag 可注也不需要——
--- 沙箱内外行为一致
+-- pi 专属启动参数：--tui-mode fullscreen（alternate screen 整窗渲染，与
+-- claude CLAUDE_CODE_NO_FLICKER=1 同款；2026-11 老大裁决改 fullscreen，取代
+-- 初版 regular——见 ADR 0008 修订）。状态/名字出口 = OSC 7501（env
+-- PI_PROGRAM_STATUS=1 绕过终端应答握手——nvim :terminal 无人应答，G1 实证
+-- TermRequest 原样收到），零机器侧安装件（优于 claude --settings / codex
+-- hooks.json）。沙箱：pi 无内建权限系统（官方 security.md，天生
+-- full-auto），无 flag 可注也不需要——沙箱内外行为一致
 local function pi_spawn_cmd(cmd_list)
   local out = vim.deepcopy(cmd_list)
-  vim.list_extend(out, { "--tui-mode", "regular" })
+  vim.list_extend(out, { "--tui-mode", "fullscreen" })
   return out
 end
 
