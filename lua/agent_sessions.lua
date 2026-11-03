@@ -640,6 +640,10 @@ local function status_apply(line)
       if STATE_HL[ev.state] then -- 只认统一状态词表
         s.state = ev.state
         tw_drain(s, "status") -- 搭车重查：补 FSEvents 丢通知的漏（见 tw_drain 注释）
+      elseif type(ev.name) == "string" and ev.name ~= "" then
+        -- pi 名字直报（agent-nvim-sync 扩展）：TUI 内 /name 在 idle 态不触发
+        -- 7501 新报文（msg 只随 working/done 走），改名即时回流走本邮箱
+        name_apply(s, ev.name)
       elseif ev.sid and ev.transcript then -- SessionStart 身份上报（名字同步）
         watch_transcript(s, ev.transcript)
       end
@@ -780,23 +784,27 @@ end
 -- 冒充（fake TUI 渲染 ─ 规则线 + 7501 报文），真身走 PATH 里的 pi
 local PI_BIN = vim.env.AGENT_PI_BIN or "pi"
 
--- pi 专属启动参数：--tui-mode fullscreen（alternate screen 整窗渲染，与
--- claude CLAUDE_CODE_NO_FLICKER=1 同款；2026-11 老大裁决改 fullscreen，取代
--- 初版 regular——见 ADR 0008 修订）。状态/名字出口 = OSC 7501（env
+-- pi 专属启动参数：-e 挂随仓桥接扩展 scripts/agent-pi-bridge.ts（inline diff
+-- 快照 + 名字邮箱直报——与 claude `--settings scripts/agent-status-settings.json`
+-- 同款零安装房屋模式：功能件随仓走、spawn 注入，新装 pi 即用，机器侧 ~/.pi
+-- 零依赖）；--tui-mode fullscreen（alternate screen 整窗渲染，与 claude
+-- CLAUDE_CODE_NO_FLICKER=1 同款；2026-11 老大裁决改 fullscreen，取代初版
+-- regular——见 ADR 0008 修订）。状态/名字出口 = OSC 7501（env
 -- PI_PROGRAM_STATUS=1 绕过终端应答握手——nvim :terminal 无人应答，G1 实证
--- TermRequest 原样收到），零机器侧安装件（优于 claude --settings / codex
--- hooks.json）。沙箱：pi 无内建权限系统（官方 security.md，天生
--- full-auto），无 flag 可注也不需要——沙箱内外行为一致
+-- TermRequest 原样收到），零机器侧安装件。沙箱：pi 无内建权限系统（官方
+-- security.md，天生 full-auto），无 flag 可注也不需要——沙箱内外行为一致
+local PI_BRIDGE = vim.fn.stdpath("config") .. "/scripts/agent-pi-bridge.ts"
+
 local function pi_spawn_cmd(cmd_list)
   local out = vim.deepcopy(cmd_list)
-  vim.list_extend(out, { "--tui-mode", "fullscreen" })
+  vim.list_extend(out, { "-e", PI_BRIDGE, "--tui-mode", "fullscreen" })
   return out
 end
 
 local function pi_spawn_env()
   return {
     PI_PROGRAM_STATUS = "1",
-    -- inline diff 快照目录（机器侧 pi 扩展消费，同 claude native 的
+    -- inline diff 快照目录（随仓桥接扩展消费，同 claude native 的
     -- agent-diff-hook.sh 布局，agent_diff.lua 后端中立直接复用）
     AGENT_DIFF_DIR = vim.fn.stdpath("run") .. "/agent-diff",
   }

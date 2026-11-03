@@ -59,6 +59,9 @@ check("0 ad/ada/add 在位（inline diff 复用）", vim.fn.maparg("<leader>ad",
   and vim.fn.maparg("<leader>ada", "n") ~= "" and vim.fn.maparg("<leader>add", "n") ~= "")
 check("0 :ClaudeCode 不越界", vim.fn.exists(":ClaudeCode") == 0)
 
+-- 随仓桥接扩展路径（-e 注入，argv 判据共用）
+local BRIDGE = REPO .. "/scripts/agent-pi-bridge.ts"
+
 local function argv_wait(expect)
   return vim.wait(3000, function()
     local ok, lines = pcall(vim.fn.readfile, argsf)
@@ -73,7 +76,7 @@ local before_win = vim.api.nvim_get_current_win()
 local sid = _G.aspawn("skill-pi")
 check("skill pi 建会话", A.count() == 1 and A.buf_of(sid) ~= nil)
 check("skill 后台创建不抢焦点", vim.api.nvim_get_current_win() == before_win)
-check("skill pi 带名走 -n（免注入）", argv_wait("-n skill-pi --tui-mode fullscreen"))
+check("skill pi 带名走 -n（免注入）", argv_wait("-n skill-pi -e " .. BRIDGE .. " --tui-mode fullscreen"))
 check("skill pi ─ 规则线就绪", vim.wait(3000, function() return _G.aready(sid) == "ready" end))
 check("skill pi 7501 msg(base64) 名字回流覆写", vim.wait(3000, function()
   return A.list()[1].name == "renamed-by-7501"
@@ -81,6 +84,20 @@ end))
 check("skill pi 7501 error→attention 归一", vim.wait(3000, function()
   return A.list()[1].state == "attention"
 end))
+
+-- 判据 1b：邮箱名字直报路由（agent-nvim-sync 扩展的 nvim 侧）——idle 态在
+-- TUI 里 /name 不触发 7501 新报文（msg 只随 working/done 走），即时回流走
+-- AGENT_STATUS_FILE 邮箱单行 {"tag","name"}
+do
+  local fh = io.open(A.event_file(), "a")
+  if fh then
+    fh:write(string.format('{"tag":"%s.%s","name":"%s"}\n', vim.fn.getpid(), sid, "mailed-name"))
+    fh:close()
+  end
+  check("1b 邮箱名字直报回流", vim.wait(2000, function()
+    return A.list()[1].name == "mailed-name"
+  end))
+end
 
 -- 判据 2：首发 prompt 括号粘贴 + CR（后端中立）
 local pf = vim.fn.tempname()
@@ -103,11 +120,11 @@ vim.fn.delete(pf)
 vim.fn.delete(argsf)
 check("3 aC 直调", lib.press("<leader>aC"))
 check("3 aC 建 session", vim.wait(3000, function() return A.count() == 2 end))
-check("3 aC argv=--continue --tui-mode fullscreen", argv_wait("--continue --tui-mode fullscreen"))
+check("3 aC argv=--continue -e bridge --tui-mode fullscreen", argv_wait("--continue -e " .. BRIDGE .. " --tui-mode fullscreen"))
 vim.fn.delete(argsf)
 check("3 aR 直调", lib.press("<leader>aR"))
 check("3 aR 建 session", vim.wait(3000, function() return A.count() == 3 end))
-check("3 aR argv=--resume --tui-mode fullscreen", argv_wait("--resume --tui-mode fullscreen"))
+check("3 aR argv=--resume -e bridge --tui-mode fullscreen", argv_wait("--resume -e " .. BRIDGE .. " --tui-mode fullscreen"))
 
 -- 判据 4：aM 注入 /model（文字与 CR 分包，延时 CR 在后）
 local sent = {}

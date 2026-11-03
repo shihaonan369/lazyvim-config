@@ -139,8 +139,11 @@ transcript 均无写入（改名 TUI 生效、干净退出、盘上零痕迹；f
 失配 notify 一条明示不同步——**不本地落名假装成功**（单写者裁决不动），
 tw_path 未登记（fresh 早期）静默跳过。test-agent-status 增三判据。
 
-修订补记（2026-11-03，pi 出口）：第四家 pi 的状态/名字**不走邮箱**——
-原生 OSC 7501 Program Status（`PI_PROGRAM_STATUS=1` 绕过终端应答握手）
-由既有 TermRequest autocmd 按 buffer 归因直收，零机器侧安装件；五态收敛
-working/idle,done→idle/blocked,error→attention，msg(base64)=会话名兼改名
-回流。详见 docs/adr/0008-pi-backend.md。
+修订补记（2026-11-03，pi 出口）：第四家 pi 的状态**不走邮箱**——原生
+OSC 7501 Program Status（`PI_PROGRAM_STATUS=1` 绕过终端应答握手）由既有
+TermRequest autocmd 按 buffer 归因直收，零机器侧安装件；五态收敛
+working/idle,done→idle/blocked,error→attention。名字回流双通道：7501 的
+msg(base64) 随 working/done 兼走，idle 态改名的即时回流由随仓桥接扩展
+（scripts/agent-pi-bridge.ts，spawn 经 `pi -e` 注入）向本邮箱单行追加
+`{"tag","name"}`（`status_apply` name 路由）。详见
+docs/adr/0008-pi-backend.md。
