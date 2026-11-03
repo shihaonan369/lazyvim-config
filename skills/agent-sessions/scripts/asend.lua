@@ -44,10 +44,13 @@ end
 _G.aspawn = function(name)
   if vim.g.ai_assistant == 'codex' then
     AS.new(name, false)
+  elseif vim.g.ai_assistant == 'pi' then
+    -- pi：名字随 -n 落进 pi 本尊（adapters.pi），无需 /rename 注入队列
+    AS.new(name, false)
   elseif vim.g.ai_assistant == 'claude' then
     AS.claude_open('claude --session-id ' .. uuid4(), {}, false, name)
   else
-    error('agent-sessions skill 只支持 claude/codex')
+    error('agent-sessions skill 只支持 claude/codex/pi')
   end
   return AS.current_id()
 end

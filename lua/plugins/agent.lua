@@ -3,9 +3,9 @@ local agent = require("agent_sessions")
 -- agent 工作台本地 spec（**唯一的 dir spec**，ADR 0007）：lazy.nvim 会把
 -- 同 dir 的多个 spec 合并成一个裁决者——此前 claude-config 与 codex-config
 -- 同指 stdpath("config")，claude 态双双消失（"只有 agent tab 没有 pane"，
--- 2026-10-21 案；codex 态恰好幸存是因合并裁决者落在 codex 侧）。三家分流：
--- claude native / codex 在此接线；claude plugin 态（CLAUDE_BACKEND=plugin）
--- 交给 claudecode.nvim；opencode 走 plugins/opencode.lua。
+-- 2026-10-21 案；codex 态恰好幸存是因合并裁决者落在 codex 侧）。四家分流：
+-- claude native / codex / pi 在此接线；claude plugin 态（CLAUDE_BACKEND=
+-- plugin）交给 claudecode.nvim；opencode 走 plugins/opencode.lua。
 
 local function claude_native()
   return vim.g.ai_assistant == "claude" and vim.g.claude_backend ~= "plugin"
@@ -16,6 +16,7 @@ return {
   name = "agent-config",
   enabled = function()
     if vim.g.ai_assistant == "codex" then return true end
+    if vim.g.ai_assistant == "pi" then return true end
     return claude_native()
   end,
   config = function()
@@ -62,6 +63,24 @@ return {
         end
       end
       local mode = vim.fn.mode()
+      -- pi：@ 弹窗是交互式文件搜索（G2 实证粘贴 @ 落为纯文本、不触发附件），
+      -- 无行区间引用语法——草稿纯文本 path:行范围（pi 用 read 工具按行取），
+      -- 不提交、过目后自己 CR（与 claude native 的 draft 隐喻同款）
+      if vim.g.ai_assistant == "pi" then
+        local range = ""
+        if path == nil and (mode == "v" or mode == "V" or mode == "\22") then
+          local l1, l2 = vim.fn.line("'<"), vim.fn.line("'>")
+          local fpath = vim.fn.expand("%:p")
+          if fpath ~= "" and l1 > 0 and l2 >= l1 then
+            range = (l1 == l2) and (":" .. l1) or (":" .. l1 .. "-" .. l2)
+            path = fpath
+          end
+        end
+        path = path or vim.fn.expand("%:p")
+        if path == "" then return end
+        agent.draft(path .. range .. " ")
+        return
+      end
       if not claude_native() then
         local line_range = ""
         if path == nil and (mode == "v" or mode == "V" or mode == "\22") then
@@ -106,6 +125,26 @@ return {
         local id = agent.current_id()
         if id then agent.command(id, "/model") end
       end, { desc = "Model picker" })
+    end
+
+    -- pi 专属（同 codex 形状）：aC = --continue（cwd 最近）、aR = TUI 原生
+    -- --resume 选择器；aM = /model 注入（usage.md 核实，Ctrl+L 同效）；
+    -- inline diff 同 claude native 接线——快照由机器侧 pi 扩展
+    -- （~/.pi/agent/extensions/agent-diff.ts）落同一 AGENT_DIFF_DIR 布局，
+    -- agent_diff.lua 后端中立零改动复用
+    if vim.g.ai_assistant == "pi" then
+      vim.keymap.set("n", "<leader>aC", function() agent.resume("last") end,
+        { desc = "Continue (cwd-recent)" })
+      vim.keymap.set("n", "<leader>aR", function() agent.resume("picker") end, { desc = "Resume (picker)" })
+      vim.keymap.set("n", "<leader>aM", function()
+        local id = agent.current_id()
+        if id then agent.command(id, "/model") end
+      end, { desc = "Model picker" })
+      local diff = require("agent_diff")
+      diff.setup()
+      vim.keymap.set("n", "<leader>ad", function() diff.review_picker() end, { desc = "Review agent diffs" })
+      vim.keymap.set("n", "<leader>ada", function() diff.accept() end, { desc = "Accept diff" })
+      vim.keymap.set("n", "<leader>add", function() diff.deny() end, { desc = "Deny (rollback) diff" })
     end
 
     -- claude native 专属（ADR 0007 层 0a/1/2）

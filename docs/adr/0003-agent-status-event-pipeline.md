@@ -138,3 +138,9 @@ transcript 均无写入（改名 TUI 生效、干净退出、盘上零痕迹；f
 回归门）。处置：`M.rename` 发送后 1.5s/6s 双点读 custom-title.json，
 失配 notify 一条明示不同步——**不本地落名假装成功**（单写者裁决不动），
 tw_path 未登记（fresh 早期）静默跳过。test-agent-status 增三判据。
+
+修订补记（2026-11-03，pi 出口）：第四家 pi 的状态/名字**不走邮箱**——
+原生 OSC 7501 Program Status（`PI_PROGRAM_STATUS=1` 绕过终端应答握手）
+由既有 TermRequest autocmd 按 buffer 归因直收，零机器侧安装件；五态收敛
+working/idle,done→idle/blocked,error→attention，msg(base64)=会话名兼改名
+回流。详见 docs/adr/0008-pi-backend.md。

@@ -1,6 +1,8 @@
--- :AI <自然语言> —— 自然语言直驱 nvim 操作：claude -p 单发把请求翻译成
+-- :AI <自然语言> —— 自然语言直驱 nvim 操作：-p 单发把请求翻译成
 -- cmd:<Ex 命令> / lua:<代码> 负载，**先审后执**（confirm 过目，用户裁决
--- 2026-10-21）。解析失败或拒审一律不执行（不假成功）。claude 固定跑在
+-- 2026-10-21）。后端默认 pi（用户裁决 2026-11-03：全局切 pi——read/bash
+-- 真工具 + --session-id 原生续链；claude 保留为 vim.g.ai_cmd_backend=
+-- "claude" 手动选项；pi 缺位自动回退 claude，见 resolve_backend）。解析失败或拒审一律不执行（不假成功）。claude 固定跑在
 -- stdpath("run")/ai-cmd 下——单发 transcript 不落当前项目，-r/aC picker
 -- 不被翻译请求污染。提速实测（2026-10-21 探针）：--strict-mcp-config
 -- 砍掉 MCP 装载 ~6s（8.9s→2.96s，翻译用不上 MCP）；本机 GLM 包装后端
@@ -15,6 +17,24 @@ local M = {}
 
 local function bin()
   return vim.env.AGENT_CLAUDE_BIN or "claude"
+end
+
+-- pi 后端可执行文件（测试经 AGENT_PI_BIN 冒充，与 agent_sessions 同名同款）
+local function pi_bin()
+  return vim.env.AGENT_PI_BIN or "pi"
+end
+
+-- 后端裁决：手动选 claude 优先；默认 pi，pi 不可执行（容器未装机的过渡期）
+-- 回退 claude 并一次性 notify——装好 pi 后无需改配置自动切回（每次 :AI 重查）
+local fallback_notified = false
+local function resolve_backend()
+  if vim.g.ai_cmd_backend == "claude" then return "claude" end
+  if vim.fn.executable(pi_bin()) == 1 then return "pi" end
+  if not fallback_notified then
+    fallback_notified = true
+    vim.notify("AI ▸ pi 不可用，回退 claude（装好 pi 后自动切回）", vim.log.levels.WARN)
+  end
+  return "claude"
 end
 
 -- 续链（用户裁决 2026-10-21「常驻后台 agent」的落地形态）：claude -p -r <sid>
@@ -41,25 +61,29 @@ local function chain_file_path()
   return chain_file
 end
 
+-- 链文件带后端前缀（"pi:<sid>" / "claude:<sid>"）：后端切换即换链。旧格式
+-- 无前缀 = claude 链（claude 的 uuid 无冒号，回读天然兼容）
 local function chain_load()
   local f = chain_file_path()
   if vim.uv.fs_stat(f) then -- readfile 对缺失文件抛 E484，先探在否
-    local sid = vim.fn.readfile(f)
-    if sid and sid[1] and sid[1] ~= "" then
-      return sid[1]
+    local line = vim.fn.readfile(f)
+    if line and line[1] and line[1] ~= "" then
+      local backend, sid = line[1]:match("^(%a+):(.+)$")
+      if backend then return backend, sid end
+      return "claude", line[1]
     end
   end
-  return nil
+  return nil, nil
 end
 
-local function chain_save(sid)
+local function chain_save(backend, sid)
   local f = chain_file_path()
   vim.fn.mkdir(vim.fn.fnamemodify(f, ":h"), "p")
-  vim.fn.writefile({ sid or "" }, f)
+  vim.fn.writefile({ (sid and backend .. ":" .. sid) or "" }, f)
 end
 
 function M.reset()
-  chain_save(nil)
+  chain_save(nil, nil)
 end
 
 -- 输入框/图标内联形态均已弃（用户裁决 2026-10-21）：图标内联行因 cmdline
@@ -574,11 +598,13 @@ function M.run(query, opts)
   opts = opts or {}
   local review = opts.review or M.default_review
   local timeout_ms = vim.g.ai_cmd_timeout or 120000 -- 缺省 2min（2026-10-26 用户裁定：给 429 退避重试留预算，45s 会把还在重试的 CLI 中途杀掉）；测试缝+慢查调档（毫秒）
+  local backend = resolve_backend()
   local cwd = vim.fn.stdpath("run") .. "/ai-cmd"
   vim.fn.mkdir(cwd, "p")
   local sid = nil
   if not opts.fresh then
-    sid = chain_load()
+    local cb, cs = chain_load()
+    if cb == backend then sid = cs end -- 异后端旧链直接弃用重开
   end -- 勿写成 fresh and nil or …（and/or 旁路陷阱）
   local retried = opts._retried -- 链失效自愈上限一次
 
@@ -622,18 +648,46 @@ function M.run(query, opts)
   end
 
   local function attempt()
-    -- --add-dir 必须等号连写：claude 2.x 它是变长参数，分写会吞掉后面的
-    -- prompt 当目录（真机 2.1.281 + GLM 包装后端双实证「缺输入」报错）
-    local argv = {
-      bin(),
-      "-p",
-      "--strict-mcp-config",
-      "--output-format",
-      "json",
-      "--add-dir=" .. vim.fn.getcwd(), -- 放行项目根只读查证（头注 2026-10-23 案）
-    }
-    if sid then
-      argv[#argv + 1], argv[#argv + 2] = "-r", sid
+    local argv, run_cwd
+    if backend == "pi" then
+      -- pi：-p 文本模式 stdout 即最终回复（2026-11-03 冒烟实证：恰好回复本
+      -- 体+单换行，无任何杂质）。链 sid 由我方生成经 --session-id 传入（缺则
+      -- 建；探针实证自定义 id 可建可续、会话目录被清也自动重建——无 claude
+      -- 的「链失效」形态，出错直报不自动重开）。cwd=真项目根（相对路径可
+      -- 用），transcript 经 --session-dir 落 scratch，不进 ~/.pi/agent/
+      -- sessions 的项目会话树（隔离语义同 claude 的 scratch cwd）。
+      -- --no-mcp/--no-extensions/--no-skills/--no-prompt-templates：翻译轮
+      -- 用不上，纯提速
+      if not sid then
+        sid = string.format("ai-cmd-%d-%x", os.time(), vim.fn.rand(vim.fn.srand()))
+        chain_save(backend, sid)
+      end
+      argv = {
+        pi_bin(),
+        "-p",
+        "--no-mcp",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--session-dir", cwd .. "/pi-sessions",
+        "--session-id", sid,
+      }
+      run_cwd = vim.fn.getcwd()
+    else
+      -- --add-dir 必须等号连写：claude 2.x 它是变长参数，分写会吞掉后面的
+      -- prompt 当目录（真机 2.1.281 + GLM 包装后端双实证「缺输入」报错）
+      argv = {
+        bin(),
+        "-p",
+        "--strict-mcp-config",
+        "--output-format",
+        "json",
+        "--add-dir=" .. vim.fn.getcwd(), -- 放行项目根只读查证（头注 2026-10-23 案）
+      }
+      if sid then
+        argv[#argv + 1], argv[#argv + 2] = "-r", sid
+      end
+      run_cwd = cwd
     end
     if vim.g.ai_cmd_model then
       argv[#argv + 1], argv[#argv + 2] = "--model", vim.g.ai_cmd_model
@@ -643,7 +697,7 @@ function M.run(query, opts)
     -- 间且 headless 无值，都不合用）
     -- stdin 必须显式关闭：悬空时 CLI 干等 3s 才放弃读（十二修实测
     -- 5.1s→2.1s，快路径一半延迟；stderr 的 no-stdin 警告也同源）
-    S.job = vim.system(argv, { text = true, cwd = cwd, timeout = timeout_ms, stdin = "" }, function(res)
+    S.job = vim.system(argv, { text = true, cwd = run_cwd, timeout = timeout_ms, stdin = "" }, function(res)
       vim.schedule(function()
         if gen ~= S.gen or S.phase == "canceled" then
           return
@@ -672,7 +726,7 @@ function M.run(query, opts)
           return
         end
         if res.code ~= 0 then
-          if sid and not retried then -- 链失效（transcript 被清等）：重开一次
+          if backend == "claude" and sid and not retried then -- 链失效（transcript 被清等）：重开一次
             M.reset()
             sid = nil
             retried = true
@@ -680,19 +734,31 @@ function M.run(query, opts)
             attempt() -- phase 保持 waiting，进度接着走
             return
           end
-          terminal_state("AI ▸ claude failed: " .. claude_err(res) .. " (code=" .. tostring(res.code) .. ")")
+          -- pi 出错直报（--session-id 缺则建，无链失效形态）；claude_err 的
+          -- 尾取逻辑后端中立（噪音滤网只命中 claude 专属行，pi 的 stderr
+          -- 原样透传——含首跑 "creating a new session" 提示）
+          terminal_state("AI ▸ " .. backend .. " failed: " .. claude_err(res) .. " (code=" .. tostring(res.code) .. ")")
           return
         end
-        local ok, obj = pcall(vim.json.decode, res.stdout or "")
-        if not ok or type(obj) ~= "table" or not obj.session_id then
-          terminal_state("AI ▸ Output is not JSON (not executed):\n" .. (res.stdout or ""):sub(1, 400))
-          return
-        end
-        chain_save(obj.session_id)
-        local kind, body = parse(obj.result or "")
-        if not kind then
-          terminal_state("AI ▸ Unparseable result (not executed):\n" .. (obj.result or ""):sub(1, 400))
-          return
+        local kind, body
+        if backend == "pi" then
+          kind, body = parse(res.stdout or "")
+          if not kind then
+            terminal_state("AI ▸ Unparseable result (not executed):\n" .. (res.stdout or ""):sub(1, 400))
+            return
+          end
+        else
+          local ok, obj = pcall(vim.json.decode, res.stdout or "")
+          if not ok or type(obj) ~= "table" or not obj.session_id then
+            terminal_state("AI ▸ Output is not JSON (not executed):\n" .. (res.stdout or ""):sub(1, 400))
+            return
+          end
+          chain_save(backend, obj.session_id)
+          kind, body = parse(obj.result or "")
+          if not kind then
+            terminal_state("AI ▸ Unparseable result (not executed):\n" .. (obj.result or ""):sub(1, 400))
+            return
+          end
         end
         if kind == "say" then
           -- 闲聊直答（用户裁决 2026-10-24 十修）：不审不执——审查护的是执

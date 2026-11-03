@@ -26,7 +26,7 @@ M.default_config = {
       ["<2-LeftMouse>"] = "agent_open",
       ["a"] = "agent_new",
       ["d"] = "agent_delete",
-      ["r"] = "agent_rename", -- 重命名（claude 双向同步；codex/opencode 暂本地，TODO）
+      ["r"] = "agent_rename", -- 重命名（claude/pi 双向同步；codex/opencode 暂本地，TODO）
       -- q 必须接管：neo-tree 自带 close_window 在 position=current 窗口里
       -- 只清 buffer 不关窗，留下空 editor 窗且 agent_tree winvar 还挂着，
       -- ensure_tree 误判树在、永远不重建（实测踩过）；再开走 <leader>aa

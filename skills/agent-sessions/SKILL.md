@@ -1,19 +1,19 @@
 ---
 name: agent-sessions
-description: 在 nvim agent pane 里批量创建/投喂/命名/删除 Claude 或 Codex session。当用户要按 Gitee issue 建会话、多开并行 agent、「建几个 session」时使用。仅适用于经 nvim agent_sessions 插件 spawn 的 Claude/Codex（env 有 NVIM）。
+description: 在 nvim agent pane 里批量创建/投喂/命名/删除 Claude 或 Codex 或 Pi session。当用户要按 Gitee issue 建会话、多开并行 agent、「建几个 session」时使用。仅适用于经 nvim agent_sessions 插件 spawn 的 Claude/Codex/Pi（env 有 NVIM）。
 ---
 
 # agent-sessions 远程驱动
 
-从 Claude/Codex session 内控制宿主 nvim 的 `agent_sessions` 模块（lua/agent_sessions.lua），
+从 Claude/Codex/Pi session 内控制宿主 nvim 的 `agent_sessions` 模块（lua/agent_sessions.lua），
 批量建 agent 会话。所有控制经 `nvim --server "$NVIM" --remote-expr` →
 `luaeval` → 本 skill 的 `scripts/asend.lua`（挂 `_G.*` API）。
 
 ## 前提
 
-- `echo $NVIM` 非空（在 nvim agent pane 里跑的 Claude/Codex 才有）。没有则本 skill
+- `echo $NVIM` 非空（在 nvim agent pane 里跑的 Claude/Codex/Pi 才有）。没有则本 skill
   不适用，先进入 nvim 的 agent pane。
-- nvim cwd = 项目根；新 session 使用宿主配置的 Agent 类型。Claude 按原有路径加载 CLAUDE.md；Codex 加载 AGENTS.md 和自身配置。
+- nvim cwd = 项目根；新 session 使用宿主配置的 Agent 类型。Claude 按原有路径加载 CLAUDE.md；Codex/Pi 加载 AGENTS.md 和自身配置。
 - Neovim 启动时把本 skill 挂到 `~/.claude/skills` 与 `~/.agents/skills`；Codex 中通过 `/skills` 或 `$agent-sessions` 选择。
 
 ## 快速路径（一条命令一个会话）
@@ -23,7 +23,7 @@ description: 在 nvim agent pane 里批量创建/投喂/命名/删除 Claude 或
 ```
 
 建会话＋带名，prompt 文件则括号粘贴＋延时 CR 提交——命令即回 id，改名/投喂
-在 TUI 就绪后由 nvim 侧就绪队列自动送达（Claude 先改名后投喂，60s 超时作废）。Codex 名称仅存于 Neovim，不写入 Codex 历史。
+在 TUI 就绪后由 nvim 侧就绪队列自动送达（Claude 先改名后投喂，60s 超时作废）。Codex 名称仅存于 Neovim，不写入 Codex 历史。Pi 名称随 `-n` 落进 pi 本尊（无需改名注入）。
 会话名惯例＝issue 号（如 IKMGVU）。批量＝for 循环，**同 worktree 并发 ≤4**
 （撞文件风险，用户并行习惯上限）。
 
@@ -32,12 +32,12 @@ description: 在 nvim agent pane 里批量创建/投喂/命名/删除 Claude 或
 ```bash
 call() { nvim --server "$NVIM" --remote-expr "luaeval(\"(function() dofile('$HOME/.config/nvim/skills/agent-sessions/scripts/asend.lua') return $1 end)()\")"; }
 call '_G.aspawn([[IKMGVU]])'  # 建会话（可选带名，就绪后自动命名）→ 返回 id
-call '_G.aready(7)'         # 'ready'/'wait'（Claude ❯ / Codex › 输入框就绪）
+call '_G.aready(7)'         # 'ready'/'wait'（Claude ❯ / Codex › / Pi ─ 规则线就绪）
 call '_G.arename(7, [[IKMGVU]])'  # 事后改名（aspawn 已带名则不必）
 call '_G.aprompt_file(7, [[/tmp/p.md]])'   # 就绪后投喂，prompt 从文件读，多行安全
 call '_G.alist()'           # 会话清单（id/state/name/current）
 call '_G.abuf(7, 10)'       # buffer 尾部非空行（排障）
-call '_G.adelete(7)'        # 优雅退出（Claude /exit，Codex /quit）
+call '_G.adelete(7)'        # 优雅退出（Claude /exit，Codex /quit，Pi Ctrl+C→Ctrl+D）
 ```
 
 ## 铁律与坑（2026-10-17 全链路实证）

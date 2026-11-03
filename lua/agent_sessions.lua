@@ -22,7 +22,7 @@ local NEUTRAL_ICON = { vim.fn.nr2char(0xF06A9), vim.fn.nr2char(0xF167A) } -- rob
 local ROBOT_OFF = vim.fn.nr2char(0xF16A7)
 
 local S = {
-  ptype = nil,      -- "claude" | "codex" | "opencode"
+  ptype = nil,      -- "claude" | "codex" | "opencode" | "pi"
   sessions = {},    -- { { id, bufnr, job_id, pid, tag, state } }
   current = nil,    -- session id
   pane_win = nil,   -- winid
@@ -503,6 +503,33 @@ local function name_apply(s, title)
   end
 end
 
+-- pi OSC 7501 Program Status → 状态/名字（2026-11-03 G1 实证：nvim
+-- TermRequest 原样收到、terminator 已剥）。报文 state=<word>[:app=…]
+-- [:kind=…][:msg=<base64>]；状态五态收敛进 ADR 0003 闭词表（working→
+-- working，idle/done→idle，blocked/error→attention），msg 仅 working/done
+-- 携带且是会话名——兼作 pi 的改名回流通道（比 codex 的 OSC 0 标题更强：
+-- 名字+状态一通道）
+local PI_7501_STATE = {
+  working = "working",
+  idle = "idle",
+  done = "idle",
+  blocked = "attention",
+  error = "attention",
+}
+local function pi_status_apply(s, payload)
+  local raw = payload:match("^state=([%a_]+)")
+  local mapped = raw and PI_7501_STATE[raw]
+  if mapped and s.state ~= mapped then
+    s.state = mapped
+    emit()
+  end
+  local b64 = payload:match(":msg=([%w+/=]+)")
+  if b64 then
+    local ok, name = pcall(vim.base64.decode, b64)
+    if ok then name_apply(s, name) end
+  end
+end
+
 -- transcript 增量 drain：offset 续读 + 残行缓存，扫 custom-title 行。
 -- 三处调用：fs_event 回调、登记时、每条状态事件（搭车重查）——macOS
 -- FSEvents 偶发丢通知，而"补读追赶"依赖后续写入；rename 恰是末条时会
@@ -749,6 +776,31 @@ local function codex_spawn_cmd(cmd_list)
   return out
 end
 
+-- pi 后端（@earendil-works/pi-coding-agent，1.5.0）：headless 门设 AGENT_PI_BIN
+-- 冒充（fake TUI 渲染 ─ 规则线 + 7501 报文），真身走 PATH 里的 pi
+local PI_BIN = vim.env.AGENT_PI_BIN or "pi"
+
+-- pi 专属启动参数：--tui-mode regular（原生 scrollback 钉底，与 codex 同款
+-- 领地隐喻）。状态/名字出口 = OSC 7501（env PI_PROGRAM_STATUS=1 绕过终端
+-- 应答握手——nvim :terminal 无人应答，G1 实证 TermRequest 原样收到），零
+-- 机器侧安装件（优于 claude --settings / codex hooks.json）。沙箱：pi 无内建
+-- 权限系统（官方 security.md，天生 full-auto），无 flag 可注也不需要——
+-- 沙箱内外行为一致
+local function pi_spawn_cmd(cmd_list)
+  local out = vim.deepcopy(cmd_list)
+  vim.list_extend(out, { "--tui-mode", "regular" })
+  return out
+end
+
+local function pi_spawn_env()
+  return {
+    PI_PROGRAM_STATUS = "1",
+    -- inline diff 快照目录（机器侧 pi 扩展消费，同 claude native 的
+    -- agent-diff-hook.sh 布局，agent_diff.lua 后端中立直接复用）
+    AGENT_DIFF_DIR = vim.fn.stdpath("run") .. "/agent-diff",
+  }
+end
+
 local function claude_spawn_cmd(cmd_list)
   if not vim.fn.fnamemodify(cmd_list[1], ":t"):find("claude", 1, true) then
     return cmd_list -- 非 claude 命令（如测试用 /bin/sleep 冒充）不注入
@@ -763,13 +815,14 @@ local function claude_spawn_cmd(cmd_list)
   return out
 end
 
--- 就绪等待：Claude ❯ / Codex › 输入框渲染 = TUI 能收按键。先同步探测，
+-- 就绪等待：Claude ❯ / Codex › / pi ─（编辑区规则线，G2 实证粘贴文本落进
+-- 规则线围出的输入区）渲染 = TUI 能收按键。先同步探测，
 -- 未就绪则 buf_attach 事件驱动等（与 transcript 的 fs_event 同哲学，零轮询）；
 -- 回调 FIFO 入队（先排的改名先于后排的投喂），60s 超时静默作废——名字可事后
 -- 树内 r 补。buffer 先亡（session 退出）则等监听自然散去。
 local function ready_probe(s)
   if not s.bufnr or not vim.api.nvim_buf_is_valid(s.bufnr) then return false end
-  local prompt = S.ptype == "codex" and "›" or "❯"
+  local prompt = S.ptype == "codex" and "›" or S.ptype == "pi" and "─" or "❯"
   for _, x in ipairs(vim.api.nvim_buf_get_lines(s.bufnr, 0, -1, false)) do
     if x:match("^%s*" .. prompt) then return true end
   end
@@ -871,6 +924,25 @@ adapters.opencode = {
   end,
 }
 
+adapters.pi = {
+  new = function(name, focus)
+    -- 名字直接随 -n 落进 pi（session_info entry 持久化），无需 /rename 注入；
+    -- nvim 树侧立即同名（7501 的 working/done msg 亦带名回流纠偏）
+    local argv = { PI_BIN }
+    if name and name ~= "" then vim.list_extend(argv, { "-n", name }) end
+    local sess = spawn(pi_spawn_cmd(argv), pi_spawn_env())
+    display(sess.id, focus ~= false)
+    if name and name ~= "" then name_apply(sess, name) end
+  end,
+  -- 续接同 codex 语义（键位面同构）：--continue = cwd 最近；--resume = TUI
+  -- 原生会话选择器（零 nvim 侧代码）
+  resume = function(last)
+    local argv = pi_spawn_cmd({ PI_BIN, last and "--continue" or "--resume" })
+    local sess = spawn(argv, pi_spawn_env())
+    display(sess.id, true)
+  end,
+}
+
 adapters.claude = {
   new = function(name)
     -- plugin 态（磨合期回退开关，ADR 0007）：provider 桥链路原样保留
@@ -949,14 +1021,22 @@ function M.setup()
   vim.api.nvim_create_autocmd("TermRequest", {
     group = S.augroup,
     callback = function(args)
-      if S.ptype ~= "codex" then return end
       local idx = by_buf(args.buf)
       if not idx then return end
+      local seq = args.data and args.data.sequence or ""
       -- Codex 0.166 的正式标题出口是 OSC 0（BEL 结尾）；Neovim 已拆出
       -- terminator。按 buffer 归因，后台 session 同样回流，不抓 TUI 文案。
-      local seq = args.data and args.data.sequence or ""
-      local title = seq:match("^\27%]0;(.*)$")
-      if title then name_apply(S.sessions[idx], title) end
+      if S.ptype == "codex" then
+        local title = seq:match("^\27%]0;(.*)$")
+        if title then name_apply(S.sessions[idx], title) end
+        return
+      end
+      -- pi：OSC 7501（ST 结尾，Neovim 同样拆出 terminator）→ 状态/名字，
+      -- 见 pi_status_apply（2026-11-03 G1 实证）
+      if S.ptype == "pi" then
+        local payload = seq:match("^\27%]7501;(.*)$")
+        if payload then pi_status_apply(S.sessions[idx], payload) end
+      end
     end,
   })
 
@@ -1153,13 +1233,27 @@ end
 -- 回合结束自然退出。codex=/quit（0.166 官方斜杠命令表核实，/exit 同义，
 -- 2026-10-30）；opencode 退出命令未核实，维持 jobstop（TODO：确认后接入）
 -- force=true 直杀（ExitPre 收尾、回归测试等内部路径）
+-- pi 无退出斜杠命令（keybindings app.exit/app.clear，官方文档核实）：
+-- Ctrl+C 清草稿 → 延时 Ctrl+D 退出（编辑器空时生效）
 local QUIT_CMD = { claude = "/exit", codex = "/quit" }
 function M.delete(id, force)
   local _, sess = by_id(id)
   if not sess then return end
-  if not force and QUIT_CMD[S.ptype] then
+  if not force then
     local chan = vim.b[sess.bufnr].terminal_job_id
-    if chan then
+    if chan and S.ptype == "pi" then
+      -- 两段必须分包：\21\4 同包实测吞掉退出、单发 \4 有效（2026-11-03
+      -- E2E 探针）；\3 先清草稿保 Ctrl+D 的空编辑器前提，分包同 M.command
+      -- 文字/CR 铁律
+      vim.api.nvim_chan_send(chan, "\3")
+      vim.defer_fn(function()
+        if vim.api.nvim_buf_is_valid(sess.bufnr) then
+          pcall(vim.api.nvim_chan_send, chan, "\4")
+        end
+      end, 250)
+      return
+    end
+    if chan and QUIT_CMD[S.ptype] then
       vim.api.nvim_chan_send(chan, "\21" .. QUIT_CMD[S.ptype] .. "\r")
       return
     end
@@ -1273,6 +1367,12 @@ function M.rename(id, name)
   if S.ptype == "claude" then
     M.command(id, "/rename " .. name)
     rename_persist_check(s, name)
+  elseif S.ptype == "pi" then
+    -- /name 注入（TUI 斜杠命令，官方 usage.md 核实）+ 本地落名；pi 侧持久
+    -- 化（session_info entry），7501 的 working/done msg 带新名回流纠偏
+    M.command(id, "/name " .. name)
+    s.name = name
+    emit()
   else
     s.name = name
     emit()

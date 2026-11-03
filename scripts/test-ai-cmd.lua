@@ -15,6 +15,10 @@
 -- 12) 输入框复用守卫：零 vim.notify/零浮窗，成功路径零播报（2026-10-23）
 package.path = REPO .. "/lua/?.lua;" .. package.path
 
+-- 钉 claude 后端跑原判据组（2026-11-03 起默认后端为 pi，判据 15 单测 pi 面；
+-- 不钉则本机装了真 pi 时 resolve_backend 会把 argv 全部改道）
+vim.g.ai_cmd_backend = "claude"
+
 local fake = "/tmp/fake-ai-claude-" .. vim.fn.getpid()
 local payload = "/tmp/fake-ai-payload-" .. vim.fn.getpid()
 local argvf = "/tmp/fake-ai-argv-" .. vim.fn.getpid()
@@ -303,7 +307,7 @@ check(
   "11 超时不动链（sid 原样）",
   (function()
     local f = vim.fn.stdpath("cache") .. "/ai-cmd/chain-sid"
-    return vim.fn.filereadable(f) == 1 and vim.fn.readfile(f)[1] == "sid-fake-1"
+    return vim.fn.filereadable(f) == 1 and vim.fn.readfile(f)[1] == "claude:sid-fake-1"
   end)()
 )
 vim.g.ai_cmd_timeout = nil
@@ -429,6 +433,108 @@ do
   end
   check("13 全网格 luma>0.2（bloom 铁律，实测最暗 " .. string.format("%.3f", minl) .. "）", minl > 0.2)
   check("13 AIAnim 预览命令已注册", vim.api.nvim_get_commands({})["AIAnim"] ~= nil)
+end
+
+-- 判据 15（2026-11-03 pi 默认后端）：argv 装配/项目 cwd/文本 stdout 直解/
+-- 链 sid 复用；pi 缺位回退 claude + 恰一次 notify；pi 失败直报不重开链
+do
+  local fake_pi = "/tmp/fake-ai-pi-" .. vim.fn.getpid()
+  local pi_out = "/tmp/fake-ai-pi-out-" .. vim.fn.getpid()
+  local pifail = "/tmp/fake-ai-pi-fail-" .. vim.fn.getpid()
+  vim.fn.writefile({
+    "#!/bin/sh",
+    'printf "%s\\n" "$@" > "' .. argvf .. '"',
+    'pwd > "' .. pwdf .. '"',
+    'if [ -f "' .. pifail .. '" ]; then echo "pi boom" >&2; exit 1; fi',
+    'cat "' .. pi_out .. '"',
+  }, fake_pi)
+  vim.fn.setfperm(fake_pi, "rwxr-xr-x")
+  vim.env.AGENT_PI_BIN = fake_pi
+  vim.g.ai_cmd_backend = nil -- 回默认（resolve → pi）
+  A.reset()
+
+  vim.g.ai_test_pi = 0
+  vim.fn.writefile({ "cmd:let g:ai_test_pi = 1" }, pi_out)
+  A.run("pi 首问", { review = yes })
+  check("15 pi 文本 stdout 直解执行", vim.wait(5000, function() return vim.g.ai_test_pi == 1 end))
+  local pargs = last_argv()
+  check(
+    "15 pi argv 装配（-p/no-mcp/no-ext/no-skills/no-pt/session-dir+id，无 -r/--model/strict）",
+    has_arg(pargs, "-p")
+      and has_arg(pargs, "--no-mcp")
+      and has_arg(pargs, "--no-extensions")
+      and has_arg(pargs, "--no-skills")
+      and has_arg(pargs, "--no-prompt-templates")
+      and has_arg(pargs, "--session-dir")
+      and has_arg(pargs, "--session-id")
+      and not has_arg(pargs, "-r")
+      and not has_arg(pargs, "--model")
+      and not has_arg(pargs, "--strict-mcp-config")
+  )
+  check("15 pi cwd=项目根（相对路径可用）", vim.fn.resolve(table.concat(vim.fn.readfile(pwdf), "")) == vim.fn.resolve(vim.fn.getcwd()))
+  local chain_line = vim.fn.readfile(vim.fn.stdpath("cache") .. "/ai-cmd/chain-sid")[1]
+  local pi_sid = chain_line and chain_line:match("^pi:(.+)$")
+  check("15 pi 链 sid 已持久化（pi: 前缀）", pi_sid ~= nil and pi_sid ~= "")
+  check("15 pi argv 带 --session-id <链 sid>", has_arg(pargs, pi_sid))
+
+  vim.g.ai_test_pi2 = 0
+  vim.fn.writefile({ "cmd:let g:ai_test_pi2 = 2" }, pi_out)
+  A.run("pi 二问", { review = yes })
+  check("15 pi 链上二问执行", vim.wait(5000, function() return vim.g.ai_test_pi2 == 2 end))
+  check("15 pi 二问复用同 sid", has_arg(last_argv(), pi_sid))
+
+  -- pi 缺位 → 回退 claude + 恰一次 notify（装好自动切回）
+  local fnotes = {}
+  local orig_notify15 = vim.notify
+  vim.notify = function(msg, _)
+    fnotes[#fnotes + 1] = tostring(msg)
+  end
+  vim.env.AGENT_PI_BIN = "/nonexistent-pi-" .. vim.fn.getpid()
+  vim.g.ai_test_fb = 0
+  set_result("cmd:let g:ai_test_fb = 3")
+  A.run("回退问", { review = yes })
+  check("15 pi 缺位回退 claude 执行", vim.wait(5000, function() return vim.g.ai_test_fb == 3 end))
+  check("15 回退 argv 走 claude 面（--strict-mcp-config）", has_arg(last_argv(), "--strict-mcp-config"))
+  A.run("回退二问", { review = yes }) -- 二次回退不再 notify
+  check("15 回退 notify 恰一次", #fnotes == 1 and fnotes[1]:find("回退", 1, true) ~= nil)
+  vim.notify = orig_notify15
+  vim.env.AGENT_PI_BIN = fake_pi
+
+  -- pi 失败 → 直报一次，无「链失效重开」形态（--session-id 缺则建）
+  local rnotes = {}
+  local orig_report15 = A.report
+  A.report = function(text, _)
+    rnotes[#rnotes + 1] = tostring(text)
+  end
+  vim.fn.writefile({ "" }, pifail)
+  A.run("pi 失败问", { review = yes })
+  check(
+    "15 pi 失败直报",
+    vim.wait(5000, function()
+      for _, n in ipairs(rnotes) do
+        if n:find("pi failed", 1, true) then
+          return true
+        end
+      end
+      return false
+    end)
+  )
+  check(
+    "15 pi 失败无链重开播报",
+    (function()
+      for _, n in ipairs(rnotes) do
+        if n:find("reopened", 1, true) then
+          return false
+        end
+      end
+      return true
+    end)()
+  )
+  A.report = orig_report15
+  vim.fn.delete(pifail)
+  vim.fn.delete(fake_pi)
+  vim.fn.delete(pi_out)
+  vim.g.ai_cmd_backend = nil
 end
 
 -- 收尾（链桩不留假 sid 在用户 run 目录；真链 sid 归位）
