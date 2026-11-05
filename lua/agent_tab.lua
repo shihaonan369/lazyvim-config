@@ -10,6 +10,7 @@ local M = {}
 
 local TREE_WIDTH = 40
 local WELCOME_NAME = "agent-tab://welcome"
+local TAB_KEYS = { "<leader>a<Tab>", "<leader><Tab>a" }
 local FROZEN_GAP = 3 -- 底缘空隙判病阈值：免疫 chrome 记账误差与 1-2 行手滑微调
 
 local set_up = false
@@ -113,11 +114,11 @@ local function ensure_tree(tab)
   end
 end
 
--- 关树窗（q 与 tab 内 <leader>at 共用）。注意 neo-tree 自带的 close_window
+-- 关树窗（q 与 tab 内 <leader>a<Tab> 共用）。注意 neo-tree 自带的 close_window
 -- 在 position=current 窗口里只清 buffer 不关窗，留下空 editor 窗且
 -- agent_tree winvar 还挂着——ensure_tree 会误判树在、永远不重建（实测踩过），
 -- 所以 q 由本源接管直接关窗。树是 tab 唯一窗时关窗即关 tab（marker 消失，
--- <leader>at 幂等重建）；全 nvim 只剩这一个窗则 E444 防御跳过
+-- <leader>a<Tab> 幂等重建）；全 nvim 只剩这一个窗则 E444 防御跳过
 local function close_tree(tab)
   local win = tree_win(tab)
   if not win then return end
@@ -289,7 +290,7 @@ local function on_buf_enter(args)
   end
 end
 
--- agent tab 内撤除的键（离开恢复）：<leader>at 本体 + <leader>as——Smart Add
+-- agent tab 内撤除的键（离开恢复）：两个 Agent tab 入口 + <leader>as——Smart Add
 -- 的"把文件上下文加给 agent"在 tab 里语义落空（用户裁决 2026-10-15）。as 定义
 -- 分散在三个 agent spec 且各异（expr/多 mode），首次撤除前捕获原映射、
 -- 离开时原样重放
@@ -334,9 +335,19 @@ function M.guard_display_width(win)
   return tab ~= nil and win == display_win(tab)
 end
 
--- <leader>at：agent tab 内撤映射（no-op 且 which-key 不列不可用键），离开恢复
-local function map_at()
-  vim.keymap.set("n", "<leader>at", function() M.toggle() end, { desc = "Agent tab", silent = true })
+-- 两个 Agent tab 入口：tab 内撤映射（which-key 不列不可用键），离开恢复
+local function map_tab_keys()
+  for _, lhs in ipairs(TAB_KEYS) do
+    if vim.fn.maparg(lhs, "n") == "" then
+      vim.keymap.set("n", lhs, function() M.toggle() end, { desc = "Agent tab", silent = true })
+    end
+  end
+end
+
+local function unmap_tab_keys()
+  for _, lhs in ipairs(TAB_KEYS) do
+    pcall(vim.keymap.del, "n", lhs)
+  end
 end
 
 function M.toggle()
@@ -360,7 +371,7 @@ function M.toggle()
   vim.t[new_tab].agent_tab = true
   -- TabEnter 在 $tabnew 时已先于 marker 写入触发过，创建路径补撤（切换路径
   -- 由 TabEnter 钩子负责）
-  pcall(vim.keymap.del, "n", "<leader>at")
+  unmap_tab_keys()
   hide_keys()
   local tree_base = vim.api.nvim_tabpage_list_wins(new_tab)[1]
   local dw = build_display(new_tab, tree_base)
@@ -381,7 +392,7 @@ end
 function M.setup()
   if set_up then return end
   set_up = true
-  agent.setup() -- 幂等：冷启动直接 <leader>at → 树内 a 新建，ptype/TermClose 必须就位
+  agent.setup() -- 幂等：冷启动直接 <leader>a<Tab> → 树内 a 新建，ptype/TermClose 必须就位
   agent.set_alt_viewport({
     active = M.active,
     show = M.show,
@@ -417,7 +428,7 @@ function M.setup()
     group = grp,
     callback = function()
       if M.active() then
-        pcall(vim.keymap.del, "n", "<leader>at")
+        unmap_tab_keys()
         hide_keys()
         local tab = vim.api.nvim_get_current_tabpage()
         if last_tab and last_tab ~= tab then vim.t[tab].return_tab = last_tab end
@@ -433,13 +444,13 @@ function M.setup()
           pcall(function() require("neo-tree.sources.manager").refresh("agent_tree") end)
         end)
       else
-        if vim.fn.maparg("<leader>at", "n") == "" then map_at() end
+        map_tab_keys()
         restore_keys()
       end
     end,
   })
   if M.active() then
-    pcall(vim.keymap.del, "n", "<leader>at")
+    unmap_tab_keys()
     hide_keys()
   end
 end

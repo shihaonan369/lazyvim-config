@@ -1,7 +1,7 @@
 -- agent tab 视口回归 payload（scripts/test-agent-tab.sh 驱动，headless --clean）。
 -- 判据 = tab/窗口/模块状态实测，不依赖 UI redraw；neo-tree 缺席时树降级为
 -- winvar 骨架（agent_tree winvar 判据与真实环境同构）。覆盖（docs/adr/0005）：
--- 1) <leader>at 幂等：末尾建 tab、首开自动新建、存在即切、tab 内 no-op 且撤映射
+-- 1) <leader>a<Tab> 幂等：末尾建 tab、首开自动新建、存在即切、tab 内 no-op 且撤映射
 -- 1b) <leader>aa 视口分派：agent tab 内 = 树 toggle（主 tab 仍浮窗 picker，不在
 --     --clean 测——Snacks 缺席，分派判据已保证不落到那段）
 -- 2) tab 内再建：pane 不立、右窗即显、termopen 走 buf_call
@@ -12,7 +12,7 @@
 -- 这里以预置 claude_cache（建后删）覆盖 agent.new() 的缓存路径
 package.path = REPO .. "/lua/?.lua;" .. package.path
 vim.g.ai_assistant = "claude" -- 对齐真实配置默认（options.lua）；--clean 下未设会让 adapters 空转
-dofile(REPO .. "/lua/config/keymaps.lua") -- 真键位路径：<leader>at 映射 + agent_tab.setup()
+dofile(REPO .. "/lua/config/keymaps.lua") -- 真键位路径：<leader>a<Tab> 映射 + agent_tab.setup()
 
 local A = require("agent_sessions")
 local T = require("agent_tab")
@@ -55,8 +55,11 @@ check("假 <leader>as 已就位", vim.fn.maparg("<leader>as", "n") ~= "")
 local tabline_before = vim.o.showtabline
 
 -- 判据 1：末尾建 tab、首开自动新建、左树右显示窗 ------------------------
-check("<leader>at 已映射", type((vim.fn.maparg("<leader>at", "n", false, true)).callback) == "function")
-press("<leader>at")
+check("旧 <leader>at 不再映射", vim.fn.maparg("<leader>at", "n") == "")
+for _, lhs in ipairs({ "<leader>a<Tab>", "<leader><Tab>a" }) do
+  check(lhs .. " 已映射", type((vim.fn.maparg(lhs, "n", false, true)).callback) == "function")
+end
+press("<leader>a<Tab>")
 quiesce()
 local tab = T.tab()
 check("tab 已建于末尾", tab ~= nil and vim.api.nvim_get_current_tabpage() == tab
@@ -85,7 +88,9 @@ check("wincmd = 后树宽仍为 40", vim.api.nvim_win_get_width(tw_w) == 40)
 local dwin_w_before = vim.api.nvim_win_get_width(dwin)
 vim.api.nvim_win_set_width(dwin, math.floor(vim.o.columns * 0.30))
 check("外部 set_width 直写显示窗被拒绝", vim.api.nvim_win_get_width(dwin) == dwin_w_before)
-check("tab 内 <leader>at 已撤（which-key 不列）", vim.fn.maparg("<leader>at", "n") == "")
+for _, lhs in ipairs({ "<leader>a<Tab>", "<leader><Tab>a" }) do
+  check("tab 内 " .. lhs .. " 已撤（which-key 不列）", vim.fn.maparg(lhs, "n") == "")
+end
 check("tab 内 <leader>as 已撤（捕获-重放机制）", vim.fn.maparg("<leader>as", "n") == "")
 check("tab 内不动 showtabline（buffer 标签由 custom_filter 滤）", vim.o.showtabline == tabline_before)
 
@@ -197,7 +202,9 @@ check("右窗转空白占位", dw() ~= nil and vim.b[vim.api.nvim_win_get_buf(dw
 check("tab 空壳保留", T.tab() == tab)
 vim.cmd("tabnext 1")
 quiesce()
-check("离开后 <leader>at 恢复", type((vim.fn.maparg("<leader>at", "n", false, true)).callback) == "function")
+for _, lhs in ipairs({ "<leader>a<Tab>", "<leader><Tab>a" }) do
+  check("离开后 " .. lhs .. " 恢复", type((vim.fn.maparg(lhs, "n", false, true)).callback) == "function")
+end
 check("离开后 <leader>as 恢复且回调保真", (function()
   local m = vim.fn.maparg("<leader>as", "n", false, true)
   if type(m) ~= "table" or m.callback == nil then return false end
@@ -205,9 +212,9 @@ check("离开后 <leader>as 恢复且回调保真", (function()
   return fake_fired
 end)())
 check("离开后 showtabline 未被触碰", vim.o.showtabline == tabline_before)
-press("<leader>at") -- 幂等：存在即切（末尾那个）
+press("<leader><Tab>a") -- 幂等：存在即切（末尾那个）
 quiesce()
-check("再次 <leader>at 存在即切", vim.api.nvim_get_current_tabpage() == T.tab())
+check("<leader><Tab>a 存在即切", vim.api.nvim_get_current_tabpage() == T.tab())
 
 -- 判据 6：d 默认优雅退出（用户裁决 2026-10-15）——只发命令不强杀；
 -- 假 agent 不懂 /exit，存活即证明未 jobstop，force 收尾
@@ -224,7 +231,7 @@ end))
 
 -- 判据 7（2026-10-20 案）：视口恒满屏自愈——底缘空隙是 frame 预算冻结的病征。
 -- 真凶无法 headless 复现（nvim 内部状态损坏，隐藏 tab 强写/重缩放等四组对照
--- 实验均免疫），以 resize 缩窗造同款不满屏态，固化用户契约：重入/<leader>at
+-- 实验均免疫），以 resize 缩窗造同款不满屏态，固化用户契约：重入/<leader>a<Tab>
 -- 即重建、tab 换新、session 零损；健康态重入不重建（防误伤）
 A.claude_open("/bin/sleep 602", {}, false)
 quiesce()
@@ -260,9 +267,9 @@ vim.api.nvim_win_call(dw(), function() vim.cmd("resize 6") end)
 quiesce()
 vim.cmd("tabnext 1")
 quiesce()
-press("<leader>at")
+press("<leader>a<Tab>")
 quiesce()
-check("<leader>at 自愈重建并落座", T.tab() ~= tab_healed
+check("<leader>a<Tab> 自愈重建并落座", T.tab() ~= tab_healed
   and vim.api.nvim_get_current_tabpage() == T.tab() and bottom_gap() < 3)
 check("自愈后 session 仍在右窗", vim.api.nvim_win_get_buf(dw()) == A.buf_of(sid7))
 

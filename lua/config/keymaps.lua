@@ -7,8 +7,10 @@ for i = 1, 9 do
 end
 
 -- agent tab 视口（docs/adr/0005）：幂等切换（不存在则建于末尾、存在则切入，
--- 已在其中 no-op——TabEnter 钩子会在 tab 内撤掉本键，which-key 不列不可用键）
-map("n", "<leader>at", function() require("agent_tab").toggle() end, { desc = "Agent tab", silent = true })
+-- 已在其中 no-op——TabEnter 钩子会在 tab 内撤掉这两个键，which-key 不列不可用键）
+for _, lhs in ipairs({ "<leader>a<Tab>", "<leader><Tab>a" }) do
+  map("n", lhs, function() require("agent_tab").toggle() end, { desc = "Agent tab", silent = true })
+end
 require("agent_tab").setup()
 
 -- :AI <自然语言>：自然语言直驱 nvim 操作（claude -p 单发翻译，先审后执，
@@ -17,7 +19,7 @@ require("ai_cmd").setup()
 
 -- <leader>a1..9：直达位置编号 #n（存活序，CONTEXT.md 词汇；树/statusline
 -- 图标串/picker 同序，切换不重排）。display 全语义不夺焦——pane 收着则弹出、
--- 开着换 buffer、agent tab 内右窗换 buffer；「带视角过去」是 at/aa 的职责，
+-- 开着换 buffer、agent tab 内右窗换 buffer；「带视角过去」是 a<Tab>/aa 的职责，
 -- 这里只切 current。10+ 走 aa picker / 树
 for n = 1, 9 do
   map("n", "<leader>a" .. n, function()
