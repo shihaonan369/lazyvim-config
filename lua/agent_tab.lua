@@ -32,6 +32,13 @@ function M.active()
   return is_agent_tab(vim.api.nvim_get_current_tabpage())
 end
 
+-- buffer 标签按工作区域隔离；pane 在 editor tab 可见也不泄漏 agent 标签。
+-- 与 tabline 显隐计数共用同一判据，不把别的域的 buffer 算进去。
+function M.buffer_visible(buf)
+  local is_agent = vim.b[buf].agent_session == true
+  return M.active() == is_agent
+end
+
 -- 显示窗（tab var 记 winid；失效=被用户关闭）
 local function display_win(tab)
   local win = vim.t[tab].agent_display
@@ -309,9 +316,6 @@ local function hide_keys()
   end
 end
 
--- agent tab 内不列 file buffer 标签（用户裁决 2026-10-15；tab 页标签保留）。
--- 不动 showtabline（一刀切会把 tab 标签也藏掉）——过滤交给 bufferline 的
--- custom_filter（见 lua/plugins/bufferline.lua），tabline 随 TabEnter 自然重绘
 local function restore_keys()
   for lhs, mods in pairs(hidden_keys) do
     for mode, m in pairs(mods) do

@@ -23,7 +23,7 @@ vim.api.nvim_create_autocmd({ "FileType" }, {
   end,
 })
 
--- tabline 显隐独立计算：buffer 数与 tab 数任一 >1 即显示（用户裁决
+-- tabline 显隐独立计算：当前域 buffer 数与 tab 数任一 >1 即显示（用户裁决
 -- 2026-10-15，docs/adr/0005 的 bufferline 过滤配套）。接管 bufferline 的
 -- toggle_bufferline——它只数 buffer，单 buffer + 多 tab 时会把整条砍掉，
 -- tab 段的存亡被 buffer 段绑架；auto_toggle_bufferline=false 见
@@ -33,7 +33,12 @@ vim.api.nvim_create_autocmd({ "BufAdd", "BufDelete", "TabNew", "TabClosed", "Tab
   group = "tabline_visibility",
   callback = function()
     vim.schedule(function() -- 事件时点的计数快照不含新 buffer（:e 的 BufAdd 实测），出栈后数
-      local show = #vim.fn.getbufinfo({ buflisted = 1 }) > 1 or #vim.api.nvim_list_tabpages() > 1
+      local count = 0
+      local tab = require("agent_tab")
+      for _, buf in ipairs(vim.fn.getbufinfo({ buflisted = 1 })) do
+        if tab.buffer_visible(buf.bufnr) then count = count + 1 end
+      end
+      local show = count > 1 or #vim.api.nvim_list_tabpages() > 1
       vim.o.showtabline = show and 2 or 0
     end)
   end,

@@ -1,7 +1,7 @@
 -- agent_tree 渲染跟随回归 payload（scripts/test-agent-tree.sh 驱动，headless
 -- --clean + 真 neo-tree——lazy 路径注入 package.path，树本体渲染在此固化，
 -- 补 test-agent-tab.lua 的 winvar 骨架降级盲区）。判据（2026-10-17 实测 bug：
--- 显示窗 </> 切换后树"高亮行"不跟随）：
+-- 显示窗切换 session 后树"高亮行"不跟随）：
 -- 1) 首开/切换后 current 标记挪窝（树节点 extra.current 在正确行）
 -- 2) 树光标行 = current 节点行（CursorLine 跟随——树里最醒目的行）
 -- 3) 主 tab pane 侧切换后回 agent tab：TabEnter 补刷，标记与光标对齐当下
@@ -13,10 +13,17 @@ package.path =
   .. LAZY .. "/plenary.nvim/lua/?.lua;" .. LAZY .. "/plenary.nvim/lua/?/init.lua;"
   .. package.path
 
-require("neo-tree").setup({
-  sources = { "agent_tree" },
-  default_source = "agent_tree",
-})
+local tree_opts = { default_source = "agent_tree" }
+dofile(REPO .. "/lua/plugins/neo-tree.lua").opts(nil, tree_opts)
+require("neo-tree").setup(tree_opts)
+vim.opt.rtp:prepend(LAZY .. "/bufferline.nvim")
+local buffer_spec = dofile(REPO .. "/lua/plugins/bufferline.lua")
+local buffer_opts = { options = { show_buffer_icons = false, diagnostics = false } }
+buffer_spec.opts(nil, buffer_opts)
+require("bufferline").setup(buffer_opts)
+for _, key in ipairs(buffer_spec.keys) do
+  vim.keymap.set("n", key[1], key[2], { desc = key.desc })
+end
 
 vim.g.ai_assistant = "claude" -- 对齐真实配置默认（--clean 下未设会让 adapters 空转）
 dofile(REPO .. "/lua/config/keymaps.lua") -- 真键位路径：<leader>at 映射 + agent_tab.setup()
@@ -49,7 +56,7 @@ local function current_node_line()
   return linenr, vim.api.nvim_win_get_cursor(tw)[1]
 end
 
-local press = lib.press -- buf 语境版：term buffer 上的 < / > 是 buffer 局部键
+local press = lib.press
 
 vim.o.columns = 200
 vim.o.lines = 50
@@ -65,15 +72,27 @@ check("首开光标即 current 行", before_node ~= nil and before_node == befor
 
 local dwin = vim.t[T.tab()].agent_display
 local tbuf = vim.api.nvim_win_get_buf(dwin)
-vim.api.nvim_set_current_win(dwin) -- 真实姿势：焦点在显示窗按 < / >
-
-press("<", tbuf) -- maparg 必须在 term buffer 语境取——树 buffer 上是 "none"
+vim.api.nvim_set_current_win(dwin) -- 真实姿势：焦点在显示窗按 H/L
+nvim_bufferline() -- headless 手动渲染以更新标签快照
+press("<S-h>", tbuf)
 quiesce()
 local id1 = A.list()[1].id
-check("显示窗 < 切到 #1", A.current_id() == id1)
+check("显示窗 H 切到 #1", A.current_id() == id1)
 local node1, cursor1 = current_node_line()
 check("树 current 标记在 #1 行", node1 ~= nil and node1 == 1)
 check("树光标行跟随 current（CursorLine 同步）", cursor1 == node1)
+-- 真树的 H/L 不得被默认 hidden-files/preview 等 buffer-local 映射截获。
+local _, tree_win = tree_state()
+vim.api.nvim_set_current_win(tree_win)
+nvim_bufferline()
+press("<S-l>")
+quiesce()
+check("真树 L 切换右窗且不污染树", A.current_id() == A.list()[2].id
+  and vim.api.nvim_get_current_win() == tree_win and vim.bo.filetype == "neo-tree")
+nvim_bufferline()
+press("<S-h>")
+quiesce()
+check("真树 H 返回 #1", A.current_id() == id1)
 
 -- 判据 3：主 tab pane 上切换，回 agent tab 树补齐。pane 在 spawn 时已开
 -- （claude_open → show_pane，tab 1 布局里），不能再 toggle——那会把开着的

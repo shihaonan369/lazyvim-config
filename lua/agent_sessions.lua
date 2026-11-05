@@ -737,6 +737,8 @@ local function spawn(cmd_list, env)
   -- agent tab 内新建走备用视口：pane 不立（立了会砸坏 tab 布局，ADR 0005），
   -- buffer 直接上 tab 右窗，termopen 用 buf_call 在无宿主窗的 buffer 上执行
   sess.bufnr = vim.api.nvim_create_buf(false, true)
+  -- bufferline 只接收 listed buffer；标签域隔离由 agent_tab.buffer_visible 负责。
+  vim.bo[sess.bufnr].buflisted = true
   vim.b[sess.bufnr].agent_session = true -- buffer 身份标记：pane 不变量只认它（docs/adr/0002）
   table.insert(S.sessions, sess) -- TermOpen 回调依赖 registry 已登记
   S.current = sess.id
@@ -1100,10 +1102,16 @@ function M.setup()
     callback = function(args)
       if not by_buf(args.buf) then return end
       local bopts = { buffer = args.buf, silent = true }
-      vim.keymap.set("n", "<", function() M.cycle(-1) end,
-        vim.tbl_extend("force", bopts, { desc = "Agent session prev" }))
-      vim.keymap.set("n", ">", function() M.cycle(1) end,
-        vim.tbl_extend("force", bopts, { desc = "Agent session next" }))
+      for key, dir in pairs({ ["<"] = -1, [">"] = 1 }) do
+        vim.keymap.set("n", key, function()
+          -- 同一 terminal buffer 可同时出现在 pane/tab，不能静态删 buffer-local
+          -- 映射：只在 agent tab 禁用会话循环，pane 仍用旧键。
+          if alt_viewport and alt_viewport.active() then return end
+          M.cycle(dir)
+        end, vim.tbl_extend("force", bopts, {
+          desc = dir < 0 and "Agent session prev (pane)" or "Agent session next (pane)",
+        }))
+      end
 
       if S.ptype == "opencode" then
         local cmd = require("opencode").command

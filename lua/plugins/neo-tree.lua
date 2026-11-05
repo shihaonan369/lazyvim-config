@@ -18,6 +18,9 @@ return {
           -- 而本源无 open 命令、映射会被整体跳过
           ["l"] = "agent_open",
           ["h"] = "none",
+          -- 让全局 H/L 接管 agent 标签切换，不落入树默认的隐藏文件开关。
+          ["H"] = "none",
+          ["L"] = "none",
           ["P"] = "none",
           ["z"] = "none",
           ["Z"] = "none",

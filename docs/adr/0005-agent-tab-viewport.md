@@ -111,3 +111,22 @@ buffer 随窗隐藏不卸载、job 不死——生命周期解耦设计的事实
 退出，且无再进来入口）。return_tab 接力，让位身份不因换壳丢失。
 回归：test-agent-tab.lua 判据 7（真冻结无法 headless 复现，以 resize 缩窗
 造同款不满屏态固化用户契约；健康态重入不重建防误伤）。
+
+## 修订：Agent buffer 标签与 H/L 导航
+
+用户裁决：Agent tab 只能显示 agent 标签（所有存活 session），不显示任何其他
+buffer 标签；agent 标签也不出现在其他 tab。此为 agent 身份白名单，不是仅排除
+文件标签。废止此前 Agent tab 把 buffer 条目全滤掉的呈现。
+标签名字沿用 session 名字，无名回退类型 + 位置编号。normal 模式 `H/L` 按
+实际标签顺序循环（含手动排序），树内也以全局 current 为锚点切换右窗；
+`</>` 在 Agent tab 内不再切换，在 editor tab 的 Agent pane 内仍保留
+ADR 0001 的旧行为。terminal 输入模式不拦截这些字符。
+
+bufferline 仅接纳 listed buffer，因此 session 出生时列入候选，但标签过滤与
+显隐计数共用当前工作区域的判据，避免后台 agent 撑开 editor 的空标签栏。
+标签导航/点击走 session select，而非直接 `:buffer`，以维持单一 current 和
+所有显示窗同步；标签关闭走优雅退出，不委托文件 buffer 的强删。Agent pane
+与 Agent tab 仍为同一 session 池的双视口，不改生命周期和布局语义。
+
+回归：`scripts/test-agent-bufferline.sh`（真 bufferline）、
+`scripts/test-agent-tree.sh`（真 neo-tree + bufferline，树跟随）。
