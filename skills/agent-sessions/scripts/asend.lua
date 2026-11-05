@@ -17,10 +17,11 @@ end
 
 local function send(ch, s) pcall(vim.api.nvim_chan_send, ch, s) end
 
--- 建新 claude 会话（--session-id 携额外参数才触发 claude_open 的 wants_new
--- 分支走 spawn；focus=false 不抢用户焦点）。带名：经 claude_open 第 4 参入
--- nvim 侧就绪队列，TUI 就绪后自动 /rename（name 为 nil 则匿名）。返回新会话
--- id——命令即回，命名异步送达（回流滞后见 SKILL.md）。
+-- 建新 Claude：--name 启动定名，避开 ❯ 已渲染但输入循环未启动时吞掉
+-- /rename 的窗口。claude_open 按空白拆命令，helper 用 base64 保住含空格/
+-- 引号的名字（不是 shell 转义）；第 4 参留空，绝不再排自动改名。
+-- focus=false 不抢焦点，名字仍由 Claude transcript 回流，不伪造本地成功。
+local script_dir = vim.fn.fnamemodify(debug.getinfo(1, 'S').source:sub(2), ':p:h')
 -- UUID 取法双平台：/proc 是 Linux 独有（容器 clone 验证环境），Mac 侧
 -- io.open 返回 nil 原地炸 E5108——退 luv CSPRNG 自拼 v4（version/variant
 -- 位用十进制取模置位，不依赖 bit 库）
@@ -48,7 +49,13 @@ _G.aspawn = function(name)
     -- pi：名字随 -n 落进 pi 本尊（adapters.pi），无需 /rename 注入队列
     AS.new(name, false)
   elseif vim.g.ai_assistant == 'claude' then
-    AS.claude_open('claude --session-id ' .. uuid4(), {}, false, name)
+    local cmd = script_dir .. '/claude_spawn.sh'
+    if name and name ~= '' then
+      -- 单行会话名；拒绝 shell command substitution 会裁掉的尾换行。
+      assert(not name:find('[\r\n]'), '会话名须为单行')
+      cmd = cmd .. ' --skill-name=' .. vim.base64.encode(name)
+    end
+    AS.claude_open(cmd .. ' --session-id ' .. uuid4(), {}, false)
   else
     error('agent-sessions skill 只支持 claude/codex/pi')
   end
@@ -61,25 +68,30 @@ _G.aready = function(id)
   return AS.is_ready(id) and 'ready' or 'wait'
 end
 
--- 会话命名（/rename 注入，claude 侧 custom-title.json 即落；nvim 树回流有
--- 滞后）。注入本体在 AS.rename（文字与 CR 分包延时），此处只做入口
+-- 事后改名；AS.rename 分包注入，Claude transcript 回流才算成功。
+-- 此入口会清输入草稿；只在会话空闲且无用户草稿时调用。
 _G.arename = function(id, name)
   AS.rename(id, name)
   return 'ok'
 end
 
--- 首发 prompt：AS.when_ready 入队（就绪即投喂；与改名同队 FIFO 串行）。
+-- 首发 prompt：AS.when_ready 入队（Claude 首帧后另 settle 再投喂）。
 -- 投喂 = Ctrl-U 清草稿 → 括号粘贴（多行安全）→ 延时 CR 提交。文字与 CR
 -- 必须分开发（TUI 会吞同包紧跟的 CR）；返回占用时长，队列顺延下一条
 _G.aprompt_file = function(id, path)
   AS.when_ready(id, function()
-    local ch = chan_of(id)
-    if not ch then return end
-    local lines = vim.fn.readfile(path)
-    send(ch, '\21')
-    send(ch, '\27[200~' .. table.concat(lines, '\n') .. '\27[201~')
-    vim.defer_fn(function() send(ch, '\13') end, 400)
-    return 550 -- 占用至延时 CR 落地（400ms＋余量）
+    local function paste()
+      local ch = chan_of(id)
+      if not ch then return end -- settle 期间退出：不再发往旧 channel
+      local lines = vim.fn.readfile(path)
+      send(ch, '\21')
+      send(ch, '\27[200~' .. table.concat(lines, '\n') .. '\27[201~')
+      vim.defer_fn(function() send(ch, '\13') end, 400)
+    end
+    -- ❯ 首帧不等于输入循环已活；移除 rename 后尤其不能把 prompt 提前。
+    local settle = vim.g.ai_assistant == 'claude' and 1200 or 0
+    if settle > 0 then vim.defer_fn(paste, settle) else paste() end
+    return settle + 550 -- 占用至延时 CR 落地（400ms＋余量）
   end)
   return 'ok'
 end

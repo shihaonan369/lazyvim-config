@@ -14,6 +14,7 @@ description: 在 nvim agent pane 里批量创建/投喂/命名/删除 Claude 或
 - `echo $NVIM` 非空（在 nvim agent pane 里跑的 Claude/Codex/Pi 才有）。没有则本 skill
   不适用，先进入 nvim 的 agent pane。
 - nvim cwd = 项目根；新 session 使用宿主配置的 Agent 类型。Claude 按原有路径加载 CLAUDE.md；Codex/Pi 加载 AGENTS.md 和自身配置。
+- Claude 须支持 `--name`（已验证 2.1.317；`claude --help` 可查）；新建带名走启动参数，不走 TUI 自动改名。
 - Neovim 启动时把本 skill 挂到 `~/.claude/skills` 与 `~/.agents/skills`；Codex 中通过 `/skills` 或 `$agent-sessions` 选择。
 
 ## 快速路径（一条命令一个会话）
@@ -22,8 +23,10 @@ description: 在 nvim agent pane 里批量创建/投喂/命名/删除 Claude 或
 ~/.config/nvim/skills/agent-sessions/scripts/spawn_one.sh <会话名> [prompt文件]
 ```
 
-建会话＋带名，prompt 文件则括号粘贴＋延时 CR 提交——命令即回 id，改名/投喂
-在 TUI 就绪后由 nvim 侧就绪队列自动送达（Claude 先改名后投喂，60s 超时作废）。Codex 名称仅存于 Neovim，不写入 Codex 历史。Pi 名称随 `-n` 落进 pi 本尊（无需改名注入）。
+建会话＋带名，命令即回 id。Claude 名字随 `--name` 在启动时设置，Pi 随 `-n`；
+均不依赖自动改名注入。Codex 名称仅存于 Neovim，不写入 Codex 历史。
+prompt 文件由就绪队列等待输入框后投递（60s 未就绪作废）：Claude 额外 settle
+1.2s，再括号粘贴＋400ms 延时 CR 提交。Claude 树名以 transcript 回流为准，返回 id 不等于名字已回流。
 会话名惯例＝issue 号（如 IKMGVU）。批量＝for 循环，**同 worktree 并发 ≤4**
 （撞文件风险，用户并行习惯上限）。
 
@@ -31,7 +34,7 @@ description: 在 nvim agent pane 里批量创建/投喂/命名/删除 Claude 或
 
 ```bash
 call() { nvim --server "$NVIM" --remote-expr "luaeval(\"(function() dofile('$HOME/.config/nvim/skills/agent-sessions/scripts/asend.lua') return $1 end)()\")"; }
-call '_G.aspawn([[IKMGVU]])'  # 建会话（可选带名，就绪后自动命名）→ 返回 id
+call '_G.aspawn([[IKMGVU]])'  # 建会话（可选启动带名）→ 返回 id
 call '_G.aready(7)'         # 'ready'/'wait'（Claude ❯ / Codex › / Pi ─ 规则线就绪）
 call '_G.arename(7, [[IKMGVU]])'  # 事后改名（aspawn 已带名则不必）
 call '_G.aprompt_file(7, [[/tmp/p.md]])'   # 就绪后投喂，prompt 从文件读，多行安全
@@ -50,16 +53,36 @@ call '_G.adelete(7)'        # 优雅退出（Claude /exit，Codex /quit，Pi Ctr
   吞掉，命令躺输入框不提交。
 - **禁用 `agent_sessions.M.send()`**：它附带 M.focus() 抢用户焦点；本 skill 的
   API 全部 chansend 直注，不碰焦点。
-- 命名回流滞后：claude 侧 `custom-title.json` 即时落名，nvim 树/pane 的名字靠
-  transcript 事件搭车刷新，闲置会话可能一直不显示——不是失败。
-- Claude 分支的 `M.claude_open` 带额外参数（`--session-id <uuid>`）才走 spawn 新会话分支，
-  单 `claude` 两参只聚焦现有会话；focus=false 防抢焦点；第 4 参 = 会话名
-  （就绪队列注入，与 nvim 侧 <leader>aN 同一条链）。
+- **spawn 期吞字 ≠ 回流滞后**：Claude 的 ❯ 首帧可能早于输入循环启动；
+  此时 channel 发送成功也可能丢掉整条 `/rename`。skill 新建用 `claude_spawn.sh`
+  把名字还原成一个 `--name` 参数，绕开该窗口；首发 prompt 另加 settle。
+- Claude 分支的 `M.claude_open` 带 `--session-id <uuid>` 保证新建；focus=false
+  防抢焦点；第 4 参留空（传名字会重新启用有竞态的自动 `/rename` 队列）。
+  helper 的名字 token 是 base64，因为宿主按空白拆命令，不解析 shell 引号。
+- **事后 `arename` 会清草稿**：仅在会话空闲、没有用户未提交文字时补发；
+  已工作的会话先与用户确认，避免毁掉输入或把命令混进任务。
 - prompt 走括号粘贴，含 `[[`/`]]` 的内容改用文件路径传入更稳。
 
 ## 排障
 
 - 就绪超时（nvim 队列 60s 作废）：`_G.abuf(id)` 看 buffer——有 banner 无对应输入框
   是启动慢；空 buffer 是 termopen 没起来（alist 看 state）。
-- 提交无效：确认 CR 是延时分发的；看 abuf 输入框是否残留草稿（残留＝CR 被吞，
-  补 `_G.asend` 系列手动 `\13`——只在 asend.lua 里维护，不要内联）。
+- 新建后无名：先用 `_G.alist()` / `_G.abuf(id)` 确认会话仍活着，再查该会话
+  transcript 的 `custom-title` / `customTitle`。已有目标名＝回流显示问题；没有＝
+  尚未落盘或命名未生效。Claude 2.1.317 的 `--name` 可先在 TUI 标题生效，
+  transcript 却直到首条输入提交才创建；**无 prompt 的新会话，树名可能暂缺，
+  首条输入后再核验**。不要用 transcript born 作为首发 prompt 的硬闸（会死等）。
+  `custom-title.json` 的存在与否不足以判定失败。
+  旧版 skill 的 trace 若有 `command … /rename … ok=true` 却始终无 `apply id=`
+  且 transcript 无目标名，符合启动吞字；更新 skill 后用一次性新会话验证。
+  旧会话需要补名时，确认空闲且无草稿，再 `_G.arename(id, [[名字]])`，以 transcript
+  的目标名或 `_G.alist()` 名字回流为完成判据；不自动重试去碰用户输入。
+- 提交无效：确认文字与 CR 分包；输入框残留草稿可能是 CR 被吞，整段消失可能是
+  TUI 尚未消费输入。先确认用户草稿归属，再通过 skill 的分包入口重发。
+
+## 维护验证
+
+`bash skills/agent-sessions/scripts/test-spawn.sh`：真实 skill → 插件 spawn → 假 Claude
+PTY，模拟 ❯ 先出现、早期输入被丢；断言 transcript 名字回流、名字参数完整、无自动
+`/rename`、首发 prompt＋CR 幸存、后台创建不抢焦点，以及后续普通新建不继承旧名字。
+不使用用户的 live 会话。

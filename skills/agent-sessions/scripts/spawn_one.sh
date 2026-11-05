@@ -2,8 +2,8 @@
 # 经 nvim agent_sessions 建 1 个当前 Agent 类型的会话，可选命名＋首发 prompt。
 # 用法: spawn_one.sh <会话名> [prompt文件]
 #   prompt 文件建议单条完整指令；多行安全（括号粘贴）。不带 prompt 则建好即闲置。
-# 语义: 命令即回 id；改名与投喂在 TUI 就绪后由 nvim 侧就绪队列自动送达
-#   （FIFO 先改名后投喂，60s 超时作废）——bash 侧不再等待循环，批量更快。
+# 语义: 命令即回 id；Claude --name / Pi -n 启动定名，Codex 本地定名。
+#   prompt 经 TUI 就绪队列（Claude 另 settle 1.2s；60s 未就绪作废）。
 # 依赖: env NVIM（在 nvim agent pane 里跑的 claude/codex/pi 才有）；agent_sessions 模块。
 set -euo pipefail
 
@@ -24,4 +24,4 @@ if [ -n "$PROMPT_FILE" ]; then
 fi
 # ${NAME} 必须带花括号：全角（的首字节 0xEF 在 C locale 下被 bash 当作
 # 变量名字符（isalnum 负值 UB），裸 $NAME（ 解析成未定义变量 NAME\xef
-echo "id=$ID name=${NAME}（就绪后自动送达）prompt=$([ -n "$PROMPT_FILE" ] && echo 已排队 || echo 无)"
+echo "id=$ID name=${NAME}（已请求，alist 核验回流）prompt=$([ -n "$PROMPT_FILE" ] && echo 已排队 || echo 无)"
