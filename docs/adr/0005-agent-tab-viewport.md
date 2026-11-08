@@ -52,7 +52,8 @@ pane；后台联动（spawn 即显、TermClose 顺延/清空、状态变化刷�
 - 左窗树被手动关掉：`q` 与 `<leader>aa` 都是树 toggle 的把手——**aa 的隐喻
   是"给我看 agent 列表"，形态随视口**（主 tab = 浮窗 picker，agent tab =
   左侧树 toggle，经 `M.picker` 的 alt_viewport 分派，三个插件 spec 零改动；
-  用户裁决 2026-10-15）；切入 tab（TabEnter）也会兜底重开。**q 必须由本源
+  用户裁决 2026-10-15）；切入 tab（TabEnter）原会兜底重开，2026-11-08
+  修订改为藏树记忆（见文末）。**q 必须由本源
   接管真关窗**：neo-tree 自带 close_window 在 position=current 窗口里只清
   buffer 不关窗，留下空 editor 窗且 agent_tree winvar 还挂着——ensure_tree
   误判树在、永远不重建（实测踩过）。右窗被关掉：同步路径尊重不重建，显式
@@ -111,6 +112,19 @@ buffer 随窗隐藏不卸载、job 不死——生命周期解耦设计的事实
 退出，且无再进来入口）。return_tab 接力，让位身份不因换壳丢失。
 回归：test-agent-tab.lua 判据 7（真冻结无法 headless 复现，以 resize 缩窗
 造同款不满屏态固化用户契约；健康态重入不重建防误伤）。
+
+## 修订（2026-11-08）：手动藏树跨切换记忆
+
+用户裁决推翻 2026-10-15 的"切入兜底重开"共识：`q` / tab 内 `<leader>aa`
+关掉的树，切走再切回（gt 直切或 `<leader>a<Tab>` 切入）不再复活——藏树是
+持续意图，不是一次性状态。实现：close_tree 成功关窗即落 tab var
+`agent_tree_hidden`，TabEnter 与 toggle 两入口的 ensure_tree 兜底过门禁；
+显式重开唯一入口 = tab 内 `<leader>aa`（tree_toggle，ensure_tree 重建时
+清标记）。未走 close_tree 的消失路径（裸 `:close`、域守卫复原重建、自愈
+重建）不落标记，兜底重开语义不变。树内 `q`（agent_close_tree）改为路由进
+agent_tab.close_tree——与 `<leader>aa` 同一关树事实源，不再裸关窗；agent_tab
+缺席的 headless 骨架场景退回裸关窗。
+回归：test-agent-tab.lua 判据 1f（藏树后两入口切入均不复活、<leader>aa 再开）。
 
 ## 修订：Agent buffer 标签与 H/L 导航
 

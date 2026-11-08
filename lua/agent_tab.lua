@@ -108,6 +108,7 @@ local function ensure_tree(tab)
     win = vim.api.nvim_get_current_win()
   end)
   if win then
+    vim.t[tab].agent_tree_hidden = nil -- 显式重建即撤销藏树意图（<leader>aa/兜底复原共用此路）
     vim.w[win].agent_tree = true
     -- 立即换占位 buffer：vsplit 会从显示窗继承 agent terminal，而"已在别窗
     -- 显示"的 buffer 不触发 BWE、只有 sweep 盯——清退成 blank 又会落入域
@@ -121,18 +122,26 @@ local function ensure_tree(tab)
   end
 end
 
--- 关树窗（q 与 tab 内 <leader>a<Tab> 共用）。注意 neo-tree 自带的 close_window
--- 在 position=current 窗口里只清 buffer 不关窗，留下空 editor 窗且
--- agent_tree winvar 还挂着——ensure_tree 会误判树在、永远不重建（实测踩过），
--- 所以 q 由本源接管直接关窗。树是 tab 唯一窗时关窗即关 tab（marker 消失，
--- <leader>a<Tab> 幂等重建）；全 nvim 只剩这一个窗则 E444 防御跳过
+-- 关树窗（树内 q 与 tab 内 <leader>aa 两个把手共用；q 由 agent_tree 的
+-- agent_close_tree 路由进来）。注意 neo-tree 自带的 close_window 在
+-- position=current 窗口里只清 buffer 不关窗，留下空 editor 窗且
+-- agent_tree winvar 还挂着——ensure_tree 会误判树在、永远不重建（实测
+-- 踩过），所以关树必须真关窗。树是 tab 唯一窗时关窗即关 tab（marker
+-- 随 tab 消失，<leader>a<Tab> 幂等重建）；全 nvim 只剩这一个窗则 E444
+-- 防御跳过。成功关窗即落 agent_tree_hidden：藏树是持续的用户意图，
+-- 切走再切回不再兜底复活（2026-11-08 用户裁决，推翻 2026-10-15 的
+-- "切入重开"共识，ADR 0005 文末修订）；重开唯一入口 = tab 内 <leader>aa
 local function close_tree(tab)
   local win = tree_win(tab)
-  if not win then return end
+  if not win then return false end
   if #vim.api.nvim_tabpage_list_wins(tab) == 1 and #vim.api.nvim_list_tabpages() == 1 then
-    return
+    return false
   end
-  pcall(vim.api.nvim_win_close, win, false)
+  local ok = pcall(vim.api.nvim_win_close, win, false)
+  if ok and vim.api.nvim_tabpage_is_valid(tab) then
+    vim.t[tab].agent_tree_hidden = true
+  end
+  return ok
 end
 
 -- 视口恒满屏（2026-10-20 案）：合法布局下 tabpage 窗口必须铺满屏幕，底缘
@@ -228,6 +237,15 @@ function M.tree_toggle()
   else
     ensure_tree(tab)
   end
+end
+
+-- 树内 q 的关树把手（agent_tree 源的 agent_close_tree 映射路由到此）：与
+-- <leader>aa 同一关树事实源——真关窗 + 落 hidden 标记。agent tab 缺席的
+-- headless 骨架场景（树非本模块所建）返回 false，调用方退回裸关窗
+function M.hide_tree()
+  local tab = M.tab()
+  if not tab then return false end
+  return close_tree(tab)
 end
 
 -- agent tab 只收 agent 域（用户裁决 2026-10-15）：file buffer 等落进树窗/
@@ -364,7 +382,8 @@ function M.toggle()
     end
     vim.t[tab].return_tab = vim.api.nvim_get_current_tabpage() -- 记录来路（域守卫挪 buffer 用）
     vim.api.nvim_set_current_tabpage(tab)
-    ensure_tree(tab) -- 切入时树若被手动关过则重开（设计共识）
+    -- 兜底只管意外消失（裸 :close 等）：手动藏过的不复活（TabEnter 同款门禁）
+    if not vim.t[tab].agent_tree_hidden then ensure_tree(tab) end
     local dw = display_win(tab)
     if dw then focus_display(dw) end -- 焦点落显示窗，与 <C-a> toggle pane 的落点隐喻一致
     return
@@ -441,7 +460,9 @@ function M.setup()
             heal_frozen(tab) -- 重入即愈：schedule 内安全关/建 tab（2026-10-20 案）
             return
           end
-          ensure_tree(tab)
+          if not vim.t[tab].agent_tree_hidden then
+            ensure_tree(tab) -- 意外消失兜底重开；手动藏过（q/<leader>aa）跨切换记忆不复活
+          end
           -- 离场补齐：manager.refresh 只刷新当前 tab 的树状态，人在主 tab
           -- pane 上 </> 切换时 agent tab 的树只被记 dirty，回来此刻对齐
           -- 当下（含光标跟随，见 agent_tree.navigate）

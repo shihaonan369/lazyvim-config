@@ -108,7 +108,12 @@ M.commands = vim.tbl_extend("keep", {
     M.refresh()
   end,
   agent_close_tree = function()
-    pcall(vim.api.nvim_win_close, 0, false) -- 树是 tab 唯一窗时关窗即关 tab，幂等可重建
+    -- 路由进 agent_tab（真关窗 + 落 agent_tree_hidden：藏树跨切换记忆，
+    -- 2026-11-08 用户裁决）；agent_tab 缺席的 headless 骨架场景退回裸关窗
+    local ok, agent_tab = pcall(require, "agent_tab")
+    if not (ok and agent_tab.hide_tree()) then
+      pcall(vim.api.nvim_win_close, 0, false) -- 树是 tab 唯一窗时关窗即关 tab，幂等可重建
+    end
   end,
 }, {
   show_help = common_commands.show_help,

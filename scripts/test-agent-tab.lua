@@ -108,6 +108,25 @@ for _, w in ipairs(tab_wins()) do
 end
 check("重开树窗身份就位", tree_again)
 
+-- 判据 1f（2026-11-08 用户裁决）：手动藏树跨切换记忆——关掉后两个切入
+-- 入口（TabEnter 直切 / <leader>a<Tab>）都不复活；显式再开仍走 <leader>aa
+A.picker() -- 关树（藏）
+quiesce()
+check("藏树后 tab 单窗", #tab_wins() == 1)
+vim.cmd("tabnext 1")
+quiesce()
+vim.api.nvim_set_current_tabpage(tab) -- 切回：TabEnter 入口
+quiesce()
+check("TabEnter 切回树不复活", #tab_wins() == 1)
+vim.cmd("tabnext 1")
+quiesce()
+press("<leader>a<Tab>") -- 切回：toggle 入口
+quiesce()
+check("<leader>a<Tab> 切入树不复活", vim.api.nvim_get_current_tabpage() == tab and #tab_wins() == 1)
+A.picker() -- 再开
+quiesce()
+check("<leader>aa 重开藏过的树", #tab_wins() == 2)
+
 -- 判据 2：tab 内再建——pane 不立、右窗即显、无多余窗 ---------------------
 A.claude_open("/bin/sleep 601", {}, false) -- 新 session（当前）
 quiesce()
