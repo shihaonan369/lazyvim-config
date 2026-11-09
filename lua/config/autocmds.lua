@@ -20,6 +20,9 @@ vim.api.nvim_create_autocmd({ "FileType" }, {
   pattern = { "markdown" },
   callback = function()
     vim.opt_local.wrap = false
+    -- 必须带 bufnr：0.12 起 enable(false) 不带 filter 会全局禁用所有 buffer 的诊断
+    vim.diagnostic.enable(false, { bufnr = 0 })
+    vim.opt_local.spell = false
   end,
 })
 
