@@ -15,7 +15,7 @@ description: 在 nvim agent pane 里批量创建/投喂/命名/删除 Claude 或
   不适用，先进入 nvim 的 agent pane。
 - nvim cwd = 项目根；新 session 使用宿主配置的 Agent 类型。Claude 按原有路径加载 CLAUDE.md；Codex/Pi 加载 AGENTS.md 和自身配置。
 - Claude 须支持 `--name`（已验证 2.1.317；`claude --help` 可查）；新建带名走启动参数，不走 TUI 自动改名。
-- Neovim 启动时把本 skill 挂到 `~/.claude/skills` 与 `~/.agents/skills`；Codex 中通过 `/skills` 或 `$agent-sessions` 选择。
+- 投递（docs/adr/0009）：Claude 随 spawn 经 `--plugin-dir`、Pi 经 `--skill` 会话级注入，只在本 nvim agent pane 里生效；Codex 经 `~/.codex/skills` 自愈挂载发现，通过 `/skills` 或 `$agent-sessions` 选择。
 
 ## 快速路径（一条命令一个会话）
 

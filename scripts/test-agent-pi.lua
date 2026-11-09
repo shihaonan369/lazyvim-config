@@ -6,7 +6,8 @@
 -- 1) skill aspawn 带名：-n 落 argv（免 /rename 注入）、─ 就绪、7501 状态
 --    error→attention 归一、7501 msg(base64) → 名字回流覆写
 -- 2) aprompt_file 括号粘贴 + 延时 CR（后端中立通道）
--- 3) aC/aR spawn argv（--continue/--resume + --tui-mode fullscreen 恒附）
+-- 3) aC/aR spawn argv（--continue/--resume + --tui-mode fullscreen 恒附，
+--    --skill 仓内 skills 会话级注入恒附，ADR 0009）
 -- 4) aM 注入 "\21/model" + 300ms 延时独立 "\13"（分包铁律）
 -- 5) M.rename：/name 注入 + 本地立即落名（7501 回流纠偏为后手）
 -- 6) delete 优雅退出 = 单包 "\21\4"（Ctrl+D，无 CR 无斜杠命令）、不强杀
@@ -59,8 +60,9 @@ check("0 ad/ada/add 在位（inline diff 复用）", vim.fn.maparg("<leader>ad",
   and vim.fn.maparg("<leader>ada", "n") ~= "" and vim.fn.maparg("<leader>add", "n") ~= "")
 check("0 :ClaudeCode 不越界", vim.fn.exists(":ClaudeCode") == 0)
 
--- 随仓桥接扩展路径（-e 注入，argv 判据共用）
+-- 随仓桥接扩展路径（-e 注入）与仓内 skills 源（--skill 注入，ADR 0009）
 local BRIDGE = REPO .. "/scripts/agent-pi-bridge.ts"
+local SKILL_SRC = REPO .. "/skills"
 
 local function argv_wait(expect)
   return vim.wait(3000, function()
@@ -76,7 +78,7 @@ local before_win = vim.api.nvim_get_current_win()
 local sid = _G.aspawn("skill-pi")
 check("skill pi 建会话", A.count() == 1 and A.buf_of(sid) ~= nil)
 check("skill 后台创建不抢焦点", vim.api.nvim_get_current_win() == before_win)
-check("skill pi 带名走 -n（免注入）", argv_wait("-n skill-pi -e " .. BRIDGE .. " --tui-mode fullscreen"))
+check("skill pi 带名走 -n（免注入）", argv_wait("-n skill-pi -e " .. BRIDGE .. " --tui-mode fullscreen --skill " .. SKILL_SRC))
 check("skill pi ─ 规则线就绪", vim.wait(3000, function() return _G.aready(sid) == "ready" end))
 check("skill pi 7501 msg(base64) 名字回流覆写", vim.wait(3000, function()
   return A.list()[1].name == "renamed-by-7501"
@@ -120,11 +122,11 @@ vim.fn.delete(pf)
 vim.fn.delete(argsf)
 check("3 aC 直调", lib.press("<leader>aC"))
 check("3 aC 建 session", vim.wait(3000, function() return A.count() == 2 end))
-check("3 aC argv=--continue -e bridge --tui-mode fullscreen", argv_wait("--continue -e " .. BRIDGE .. " --tui-mode fullscreen"))
+check("3 aC argv=--continue -e bridge --tui-mode fullscreen --skill skills", argv_wait("--continue -e " .. BRIDGE .. " --tui-mode fullscreen --skill " .. SKILL_SRC))
 vim.fn.delete(argsf)
 check("3 aR 直调", lib.press("<leader>aR"))
 check("3 aR 建 session", vim.wait(3000, function() return A.count() == 3 end))
-check("3 aR argv=--resume -e bridge --tui-mode fullscreen", argv_wait("--resume -e " .. BRIDGE .. " --tui-mode fullscreen"))
+check("3 aR argv=--resume -e bridge --tui-mode fullscreen --skill skills", argv_wait("--resume -e " .. BRIDGE .. " --tui-mode fullscreen --skill " .. SKILL_SRC))
 
 -- 判据 4：aM 注入 /model（文字与 CR 分包，延时 CR 在后）
 local sent = {}

@@ -1,6 +1,6 @@
 # 仓带 skills 自愈挂载：~/.claude/skills 的 source of truth 在本仓
 
-日期：2026-10-17，状态：accepted
+日期：2026-10-17，状态：superseded（投递面由 0009 会话级注入取代，2026-11-09；skill 实体源仍在仓 skills/ 的决策不变）
 
 ## 背景
 

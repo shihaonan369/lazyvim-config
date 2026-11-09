@@ -796,9 +796,12 @@ end
 
 -- claude 专属启动参数注入：--settings 挂 agent 状态 hooks
 -- （scripts/agent-status-settings.json，随本仓库走，只作用于这里 spawn 的
--- claude，不污染全局 ~/.claude/settings.json）；沙箱（IS_SANDBOX=1）再追加
+-- claude，不污染全局 ~/.claude/settings.json）；--plugin-dir 挂随仓插件壳
+-- （scripts/agent-claude-plugin，仓内 skills 会话级注入，ADR 0009——离开
+-- nvim 的 claude 会话不再见到 agent-sessions）；沙箱（IS_SANDBOX=1）再追加
 -- bypassPermissions（新版写法，替代 --dangerously-skip-permissions）
 local CLAUDE_STATUS_SETTINGS = vim.fn.stdpath("config") .. "/scripts/agent-status-settings.json"
+local CLAUDE_AGENT_PLUGIN = vim.fn.stdpath("config") .. "/scripts/agent-claude-plugin"
 
 -- native 后端自构命令用的 claude 可执行文件（ADR 0007）；headless 门可设
 -- AGENT_CLAUDE_BIN 冒充（模块加载时求值，与 /bin/sleep 冒充 codex 同理）
@@ -834,10 +837,17 @@ local PI_BIN = vim.env.AGENT_PI_BIN or "pi"
 -- TermRequest 原样收到），零机器侧安装件。沙箱：pi 无内建权限系统（官方
 -- security.md，天生 full-auto），无 flag 可注也不需要——沙箱内外行为一致
 local PI_BRIDGE = vim.fn.stdpath("config") .. "/scripts/agent-pi-bridge.ts"
+-- 仓内 skills 实体源目录（ADR 0009：pi/claude 会话级注入、codex 自家目录挂载）
+local SKILL_SRC = vim.fn.stdpath("config") .. "/skills"
 
 local function pi_spawn_cmd(cmd_list)
   local out = vim.deepcopy(cmd_list)
   vim.list_extend(out, { "-e", PI_BRIDGE, "--tui-mode", "fullscreen" })
+  -- 仓内 skills 会话级注入：--skill 只随 spawn 生效，终端裸跑的 pi/其他
+  -- agent 不见（RPC get_commands 实测：目录直接可载，ADR 0009）
+  if vim.uv.fs_stat(SKILL_SRC) and not vim.tbl_contains(out, "--skill") then
+    vim.list_extend(out, { "--skill", SKILL_SRC })
+  end
   return out
 end
 
@@ -857,6 +867,11 @@ local function claude_spawn_cmd(cmd_list)
   local out = vim.deepcopy(cmd_list)
   if not vim.tbl_contains(out, "--settings") then
     vim.list_extend(out, { "--settings", CLAUDE_STATUS_SETTINGS })
+  end
+  if
+    vim.uv.fs_stat(CLAUDE_AGENT_PLUGIN) and not vim.tbl_contains(out, "--plugin-dir")
+  then
+    vim.list_extend(out, { "--plugin-dir", CLAUDE_AGENT_PLUGIN })
   end
   if vim.env.IS_SANDBOX == "1" and not vim.tbl_contains(out, "--permission-mode") then
     vim.list_extend(out, { "--permission-mode", "bypassPermissions" })

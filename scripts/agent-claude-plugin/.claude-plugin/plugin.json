@@ -1,0 +1,8 @@
+{
+  "name": "nvim-agent-bridge",
+  "description": "nvim agent_sessions bridge skills, repo-bundled and session-only (docs/adr/0009). Injected via --plugin-dir by agent_sessions.claude_spawn_cmd; skills/ symlinks back to the repo skills/ source of truth.",
+  "version": "1.0.0",
+  "author": {
+    "name": "shihaonan369"
+  }
+}

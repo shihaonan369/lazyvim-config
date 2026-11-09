@@ -1,9 +1,9 @@
 #!/bin/bash
-# skills 自愈挂载回归门（headless --clean，秒级）。用法：bash scripts/test-skill-mount.sh
+# skills 投递回归门（headless --clean，秒级）。用法：bash scripts/test-skill-mount.sh
 # 判据：沙箱 HOME/XDG 下直接执行从 lua/config/lazy.lua 提取的 [skill-mount]
-# 区间原文（测的就是 shipped 代码，不复制逻辑）。A=有 skills/（建/幂等/断链/
-# 他人实体），B=无 skills/（整段不动作）。见 scripts/test-skill-mount.lua、
-# docs/adr/0006。
+# 区间原文（测的就是 shipped 代码，不复制逻辑）。A=有 skills/（旧全局链卸载/
+# codex 挂载/幂等/断链/他人实体），B=无 skills/（整段不动作）。
+# 见 scripts/test-skill-mount.lua、docs/adr/0009。
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 T="$(mktemp -d)"
